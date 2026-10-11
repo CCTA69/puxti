@@ -2,6 +2,9 @@
 
 import re
 
+# Capture group makes re.split keep the spans, so callers can tell them apart.
+_JINJA_SPAN = re.compile(r"(\{\{.*?\}\}|\{%.*?%\}|\{#.*?#\})", re.DOTALL)
+
 
 def rename_column_in_sql(sql: str, old_name: str, new_name: str) -> str:
     """Replace references to old_name with new_name in a SQL string.
@@ -18,9 +21,30 @@ def rename_column_in_sql(sql: str, old_name: str, new_name: str) -> str:
     broken SQL. A source model whose only references are qualified is instead
     reported as unverified so the PR flags it for manual review.
 
+    Jinja spans ({{ }}, {% %}, {# #}) are never modified. Callers that cannot
+    accept a partial rename should check mentions_in_jinja first.
+
     Uses word-boundary matching to avoid partial replacements
     (e.g. 'recorded_date' should not match 'date').
     """
+    # re.split with a capture group alternates plain SQL (even indexes) and
+    # Jinja spans (odd indexes); only the plain segments are rewritten.
+    parts = _JINJA_SPAN.split(sql)
+    parts[::2] = [_rename_in_plain_sql(p, old_name, new_name) for p in parts[::2]]
+    return "".join(parts)
+
+
+def mentions_in_jinja(sql: str, name: str) -> bool:
+    """Return True if name appears as a whole word inside a Jinja span.
+
+    Such a reference (a macro argument, a {% set %} list, a comment) cannot be
+    renamed safely at the text level, so the model needs manual review.
+    """
+    pattern = re.compile(rf"\b{re.escape(name)}\b", re.IGNORECASE)
+    return any(pattern.search(span) for span in _JINJA_SPAN.findall(sql))
+
+
+def _rename_in_plain_sql(sql: str, old_name: str, new_name: str) -> str:
     # Backtick-quoted (BigQuery style) — direct rename
     sql = re.sub(rf"`{re.escape(old_name)}`", f"`{new_name}`", sql)
 
@@ -36,11 +60,9 @@ def rename_column_in_sql(sql: str, old_name: str, new_name: str) -> str:
 
     # Bare identifier: not preceded by a qualifier (word + dot)
     # word-boundary on both sides, case-insensitive
-    sql = re.sub(
+    return re.sub(
         rf"(?<!\w\.)\b{re.escape(old_name)}\b",
         new_name,
         sql,
         flags=re.IGNORECASE,
     )
-
-    return sql

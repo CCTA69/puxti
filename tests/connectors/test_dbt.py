@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from puxti.connectors.dbt import DbtConnector, _rename_column_in_sql
+from puxti.connectors.sql_utils import mentions_in_jinja
 from puxti.models import ChangeType, EntityType, SemanticChangeEvent
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -416,6 +417,121 @@ def test_rename_preserves_alias():
     sql = "select order_date as order_date from orders"
     result = _rename_column_in_sql(sql, "order_date", "recorded_date")
     assert "recorded_date as recorded_date" in result
+
+
+# ── Jinja handling ────────────────────────────────────────────────────────────
+
+def test_rename_leaves_ref_and_source_text_untouched():
+    """A column sharing a model's name must not alter ref()/source() arguments."""
+    sql = "select orders from {{ ref('orders') }}"
+    result = _rename_column_in_sql(sql, "orders", "order_count")
+    assert result == "select order_count from {{ ref('orders') }}"
+
+
+def test_rename_leaves_jinja_comment_and_block_untouched():
+    sql = "{# order_date note #}\n{% set cols = ['order_date'] %}\nselect order_date from t"
+    result = _rename_column_in_sql(sql, "order_date", "recorded_date")
+    assert result == (
+        "{# order_date note #}\n{% set cols = ['order_date'] %}\nselect recorded_date from t"
+    )
+
+
+def test_rename_leaves_multiline_jinja_expression_untouched():
+    sql = "select {{ dbt_utils.star(\n  from=ref('t'),\n  except=['order_date']) }}, order_date from t"
+    result = _rename_column_in_sql(sql, "order_date", "recorded_date")
+    assert "except=['order_date']" in result
+    assert result.endswith(", recorded_date from t")
+
+
+def test_mentions_in_jinja_detects_macro_argument():
+    sql = "select {{ dbt_utils.generate_surrogate_key(['order_date']) }} as k from t"
+    assert mentions_in_jinja(sql, "order_date")
+
+
+def test_mentions_in_jinja_detects_set_block_and_comment():
+    assert mentions_in_jinja("{% set c = ['order_date'] %}", "order_date")
+    assert mentions_in_jinja("{# order_date #}", "order_date")
+
+
+def test_mentions_in_jinja_ignores_plain_sql_and_partial_words():
+    assert not mentions_in_jinja("select order_date from {{ ref('orders') }}", "order_date")
+    assert not mentions_in_jinja("select {{ f('order_dates') }}", "order_date")
+
+
+def _single_model_project(tmp_path: Path, sql: str) -> DbtConnector:
+    manifest = {
+        "metadata": {"dbt_schema_version": "v9", "project_name": "jaffle_shop"},
+        "nodes": {
+            "model.jaffle_shop.orders": {
+                "resource_type": "model",
+                "name": "orders",
+                "original_file_path": "models/orders.sql",
+                "schema": "public", "database": "dev", "description": "", "tags": [],
+                "columns": {},
+                "depends_on": {"nodes": []},
+            },
+        },
+        "sources": {},
+    }
+    (tmp_path / "target").mkdir()
+    (tmp_path / "target" / "manifest.json").write_text(json.dumps(manifest))
+    (tmp_path / "models").mkdir()
+    (tmp_path / "models" / "orders.sql").write_text(sql)
+    return DbtConnector(config={"project_dir": str(tmp_path)})
+
+
+def _rename_event() -> SemanticChangeEvent:
+    return SemanticChangeEvent(
+        change_event_id="evt-jinja",
+        entity_id="model.jaffle_shop.orders.order_date",
+        change_type=ChangeType.STRUCTURAL,
+        semantic_context="rename order_date",
+        affected_entity_ids=["model.jaffle_shop.orders"],
+        reasoning="",
+        change={"before": {"name": "order_date"}, "after": {"name": "recorded_date"}},
+    )
+
+
+async def test_column_rename_model_with_jinja_reference_goes_to_unverified(tmp_path, caplog):
+    """A column referenced inside a Jinja expression cannot be renamed safely.
+    The model must be skipped (no half-renamed diff) and flagged unverified."""
+    sql = (
+        "select order_date,\n"
+        "  {{ dbt_utils.generate_surrogate_key(['order_date']) }} as k\n"
+        "from raw_orders"
+    )
+    connector = _single_model_project(tmp_path, sql)
+
+    with caplog.at_level("WARNING", logger="puxti.connectors.dbt"):
+        diffs, unverified = await connector.generate_changes(_rename_event())
+
+    assert diffs == []
+    assert unverified == ["model.jaffle_shop.orders"]
+    assert "inside a Jinja expression" in caplog.text
+
+
+async def test_column_rename_name_inside_source_args_goes_to_unverified(tmp_path):
+    """A column name that also appears in source() arguments is Jinja text: flagged, not rewritten."""
+    connector = _single_model_project(
+        tmp_path, "select order_date from {{ source('raw', 'order_date') }}"
+    )
+
+    diffs, unverified = await connector.generate_changes(_rename_event())
+
+    assert unverified == ["model.jaffle_shop.orders"]  # 'order_date' inside source()
+    assert diffs == []
+
+
+async def test_column_rename_plain_sql_with_jinja_elsewhere_still_renames(tmp_path):
+    connector = _single_model_project(
+        tmp_path, "select order_date from {{ ref('stg_orders') }}"
+    )
+
+    diffs, unverified = await connector.generate_changes(_rename_event())
+
+    assert unverified == []
+    assert len(diffs) == 1
+    assert diffs[0].after == "select recorded_date from {{ ref('stg_orders') }}"
 
 
 # ── find_model_path — the public seam engines use to locate sources ───────────

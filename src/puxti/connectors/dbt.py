@@ -1,9 +1,10 @@
 import json
+import logging
 import re
 from pathlib import Path
 
 from puxti.connectors.base import BaseConnector
-from puxti.connectors.sql_utils import rename_column_in_sql
+from puxti.connectors.sql_utils import mentions_in_jinja, rename_column_in_sql
 from puxti.models import (
     ChangeType,
     Edge,
@@ -13,6 +14,8 @@ from puxti.models import (
     FileDiff,
     SemanticChangeEvent,
 )
+
+_logger = logging.getLogger(__name__)
 
 
 class DbtConnector(BaseConnector):
@@ -261,6 +264,19 @@ class DbtConnector(BaseConnector):
             is_source = node["name"] == source_model_name
             is_direct_dependent = _references_model(original_sql, source_model_name)
             if source_model_name and not (is_source or is_direct_dependent):
+                unverified.append(node_id)
+                continue
+
+            # A reference inside a Jinja span (macro argument, {% set %}, comment)
+            # cannot be renamed at the text level. Renaming only the plain SQL
+            # would leave the model half-renamed, so skip it for manual review.
+            if mentions_in_jinja(original_sql, old_name):
+                _logger.warning(
+                    "Skipping rename of `%s` in model `%s`: column is referenced "
+                    "inside a Jinja expression; flagged as unverified",
+                    old_name,
+                    node["name"],
+                )
                 unverified.append(node_id)
                 continue
 
