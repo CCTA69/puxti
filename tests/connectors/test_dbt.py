@@ -446,6 +446,31 @@ def test_rename_leaves_multiline_jinja_expression_untouched():
     assert result.endswith(", recorded_date from t")
 
 
+def test_rename_closing_delimiter_inside_jinja_string_stays_in_span():
+    """A quoted "}}" or "%}" must not end the Jinja span early."""
+    sql = "select {{ '}}' if false else 'order_date' }} from orders"
+    assert _rename_column_in_sql(sql, "order_date", "recorded_date") == sql
+    assert mentions_in_jinja(sql, "order_date")
+
+    sql = "{% set a = '%}' ~ \"order_date\" %}\nselect order_date from t"
+    assert _rename_column_in_sql(sql, "order_date", "recorded_date") == (
+        "{% set a = '%}' ~ \"order_date\" %}\nselect recorded_date from t"
+    )
+    assert mentions_in_jinja(sql, "order_date")
+
+
+def test_rename_apostrophe_in_jinja_comment_does_not_break_spans():
+    sql = "{# don't touch #}\nselect order_date from {{ ref('orders') }}"
+    assert _rename_column_in_sql(sql, "order_date", "recorded_date") == (
+        "{# don't touch #}\nselect recorded_date from {{ ref('orders') }}"
+    )
+
+
+def test_rename_unterminated_jinja_does_not_hang():
+    sql = "select order_date from {{ ref('orders') " + "'x' " * 200
+    assert "recorded_date" in _rename_column_in_sql(sql, "order_date", "recorded_date")
+
+
 def test_mentions_in_jinja_detects_macro_argument():
     sql = "select {{ dbt_utils.generate_surrogate_key(['order_date']) }} as k from t"
     assert mentions_in_jinja(sql, "order_date")

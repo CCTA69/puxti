@@ -2,8 +2,17 @@
 
 import re
 
+# A quoted Jinja string, so a closing delimiter inside it ("}}", "%}") does not
+# end the span. Unquoted characters exclude quotes, which keeps the pattern
+# unambiguous and free of catastrophic backtracking.
+_JINJA_STRING = r"""'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*\""""
+_JINJA_BODY = rf"""(?:{_JINJA_STRING}|[^'"])*?"""
+
 # Capture group makes re.split keep the spans, so callers can tell them apart.
-_JINJA_SPAN = re.compile(r"(\{\{.*?\}\}|\{%.*?%\}|\{#.*?#\})", re.DOTALL)
+# Comments end at the first "#}" regardless of quotes, as in Jinja itself.
+_JINJA_SPAN = re.compile(
+    rf"(\{{\{{{_JINJA_BODY}\}}\}}|\{{%{_JINJA_BODY}%\}}|\{{#.*?#\}})", re.DOTALL
+)
 
 
 def rename_column_in_sql(sql: str, old_name: str, new_name: str) -> str:
