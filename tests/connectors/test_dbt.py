@@ -437,7 +437,10 @@ def test_rename_leaves_jinja_comment_and_block_untouched():
 
 
 def test_rename_leaves_multiline_jinja_expression_untouched():
-    sql = "select {{ dbt_utils.star(\n  from=ref('t'),\n  except=['order_date']) }}, order_date from t"
+    sql = (
+        "select {{ dbt_utils.star(\n  from=ref('t'),\n  except=['order_date']) }}, "
+        "order_date from t"
+    )
     result = _rename_column_in_sql(sql, "order_date", "recorded_date")
     assert "except=['order_date']" in result
     assert result.endswith(", recorded_date from t")
@@ -511,7 +514,7 @@ async def test_column_rename_model_with_jinja_reference_goes_to_unverified(tmp_p
 
 
 async def test_column_rename_name_inside_source_args_goes_to_unverified(tmp_path):
-    """A column name that also appears in source() arguments is Jinja text: flagged, not rewritten."""
+    """A column name also found in source() arguments is Jinja text: flagged, not rewritten."""
     connector = _single_model_project(
         tmp_path, "select order_date from {{ source('raw', 'order_date') }}"
     )
