@@ -153,8 +153,9 @@ class AnthropicBackend:
     exposing the same API at another base URL (Bedrock Mantle).
 
     With `auth_token` the client authenticates with `Authorization: Bearer`
-    and never reads ANTHROPIC_API_KEY, so that key cannot be sent to a
-    third-party endpoint.
+    and does not send ANTHROPIC_API_KEY, so that key cannot reach a
+    third-party endpoint. This holds from anthropic 1.0.0; earlier SDKs sent
+    both headers, which is why pyproject.toml pins that floor.
     """
 
     def __init__(
