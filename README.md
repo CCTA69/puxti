@@ -456,6 +456,9 @@ puxti purge --all
 **Re-scanning after dbt project changes**
 `puxti scan` is safe to re-run at any time — it upserts entities and definitions, so new models and columns will be added and existing ones updated. However, there is no prompt or workflow that reminds you to re-scan when your dbt project changes. Run `puxti scan` again whenever you add models, rename columns in your dbt layer, or change descriptions in yml files.
 
+**Column renames and Jinja**
+The rename is a text replacement and never edits Jinja (`{{ }}`, `{% %}`, `{# #}`). If the old column name appears inside a Jinja expression, for example a macro argument such as `dbt_utils.generate_surrogate_key(['order_date'])`, Puxti skips that model and lists it as unverified in the PR so you can update it by hand.
+
 **Finding entity IDs**
 Commands like `capture`, `redefine`, and `correct` require a full entity ID (e.g. `model.jaffle_shop.orders.order_date`). If you are not sure of an entity's ID, run `puxti describe` first — it lists all entities with their full IDs.
 
