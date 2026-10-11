@@ -409,3 +409,154 @@ def test_custom_anthropic_model_has_no_builtin_pricing(monkeypatch):
     _configure(monkeypatch, llm_model="claude-other-model")
     backend = get_backend()
     assert backend.input_cost_per_mtok is None
+
+
+# ── Claude on Bedrock via Mantle's Anthropic endpoint ─────────────────────────
+
+def _status_error(cls, status: int, message: str = "boom"):
+    return cls(message=message, response=MagicMock(status_code=status), body={})
+
+
+def _bedrock_anthropic(client: MagicMock) -> AnthropicBackend:
+    return AnthropicBackend(
+        client=client, provider="bedrock-anthropic", model="anthropic.claude-sonnet-x"
+    )
+
+
+def test_get_backend_bedrock_anthropic_uses_native_backend_with_bearer(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-must-not-leak")
+    _configure(monkeypatch, llm_provider="bedrock-anthropic",
+               llm_model="anthropic.claude-sonnet-x", llm_api_key="bk-1")
+    backend = get_backend()
+    assert isinstance(backend, AnthropicBackend)
+    assert backend.provider == "bedrock-anthropic"
+    assert backend.model == "anthropic.claude-sonnet-x"
+    assert str(backend._client.base_url).startswith(
+        "https://bedrock-mantle.us-east-1.api.aws/anthropic"
+    )
+    assert backend._client.auth_token == "bk-1"
+    assert backend._client.api_key is None  # ANTHROPIC_API_KEY is never sent to AWS
+    headers = backend._client.auth_headers
+    assert headers == {"Authorization": "Bearer bk-1"}
+    assert backend.key_configured is True
+
+
+def test_get_backend_bedrock_anthropic_base_url_overrides_preset(monkeypatch):
+    _configure(monkeypatch, llm_provider="bedrock-anthropic",
+               llm_model="anthropic.claude-sonnet-x", llm_api_key="bk-1",
+               llm_base_url="https://bedrock-mantle.eu-central-1.api.aws/anthropic")
+    assert "eu-central-1" in str(get_backend()._client.base_url)
+
+
+def test_get_backend_bedrock_anthropic_requires_model(monkeypatch):
+    _configure(monkeypatch, llm_provider="bedrock-anthropic", llm_api_key="bk-1")
+    with pytest.raises(LLMConfigError, match="LLM_MODEL"):
+        get_backend()
+
+
+def test_get_backend_bedrock_anthropic_requires_key(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-not-a-substitute")
+    _configure(monkeypatch, llm_provider="bedrock-anthropic",
+               llm_model="anthropic.claude-sonnet-x", anthropic_api_key="sk-ant-x")
+    with pytest.raises(LLMConfigError, match="LLM_API_KEY"):
+        get_backend()
+
+
+def test_get_backend_unknown_provider_lists_bedrock_anthropic(monkeypatch):
+    _configure(monkeypatch, llm_provider="nope")
+    with pytest.raises(LLMConfigError, match="bedrock-anthropic"):
+        get_backend()
+
+
+def test_bedrock_anthropic_has_no_builtin_pricing(monkeypatch):
+    _configure(monkeypatch, llm_provider="bedrock-anthropic",
+               llm_model="anthropic.claude-sonnet-x", llm_api_key="bk-1")
+    backend = get_backend()
+    assert backend.input_cost_per_mtok is None
+    assert backend.output_cost_per_mtok is None
+
+
+async def test_bedrock_anthropic_count_tokens_exact_when_supported():
+    count_response = MagicMock()
+    count_response.input_tokens = 77
+    client = _make_client(count_tokens=AsyncMock(return_value=count_response))
+
+    count = await _bedrock_anthropic(client).count_input_tokens("msg")
+
+    assert (count.tokens, count.exact) == (77, True)
+
+
+@pytest.mark.parametrize("status", [404, 405, 501])
+async def test_bedrock_anthropic_count_tokens_falls_back_to_estimate(status):
+    error = _status_error(anthropic.APIStatusError, status)
+    client = _make_client(count_tokens=AsyncMock(side_effect=error))
+
+    count = await _bedrock_anthropic(client).count_input_tokens("x" * 40, system="y" * 40)
+
+    assert count.exact is False
+    assert count.tokens == 20
+
+
+async def test_bedrock_anthropic_count_tokens_reraises_other_errors():
+    error = _status_error(anthropic.InternalServerError, 500)
+    client = _make_client(count_tokens=AsyncMock(side_effect=error))
+
+    with pytest.raises(anthropic.InternalServerError):
+        await _bedrock_anthropic(client).count_input_tokens("msg")
+
+
+async def test_default_provider_does_not_swallow_missing_count_tokens():
+    """Only third-party endpoints get the estimate; Anthropic itself must support it."""
+    error = _status_error(anthropic.NotFoundError, 404)
+    client = _make_client(count_tokens=AsyncMock(side_effect=error))
+
+    with pytest.raises(anthropic.NotFoundError):
+        await AnthropicBackend(client=client).count_input_tokens("msg")
+
+
+async def test_bedrock_anthropic_auth_check_falls_back_to_one_token_completion():
+    client = _make_client(
+        count_tokens=AsyncMock(side_effect=_status_error(anthropic.NotFoundError, 404)),
+        create=AsyncMock(return_value=_sdk_response("pong")),
+    )
+
+    await _bedrock_anthropic(client).auth_check()  # no exception
+
+    assert client.messages.create.call_args.kwargs["max_tokens"] == 1
+
+
+async def test_bedrock_anthropic_auth_check_fallback_surfaces_rejected_key():
+    client = _make_client(
+        count_tokens=AsyncMock(side_effect=_status_error(anthropic.NotFoundError, 404)),
+        create=AsyncMock(side_effect=_status_error(anthropic.AuthenticationError, 401)),
+    )
+
+    with pytest.raises(LLMAuthError, match="LLM_API_KEY"):
+        await _bedrock_anthropic(client).auth_check()
+
+
+async def test_bedrock_anthropic_maps_forbidden_to_auth_error():
+    client = _make_client(
+        create=AsyncMock(side_effect=_status_error(anthropic.PermissionDeniedError, 403))
+    )
+
+    with pytest.raises(LLMAuthError, match="bedrock-anthropic"):
+        await _bedrock_anthropic(client).complete("sys", "msg", 10)
+
+
+async def test_bedrock_anthropic_auth_check_maps_forbidden_to_auth_error():
+    client = _make_client(
+        count_tokens=AsyncMock(side_effect=_status_error(anthropic.PermissionDeniedError, 403))
+    )
+
+    with pytest.raises(LLMAuthError):
+        await _bedrock_anthropic(client).auth_check()
+
+
+async def test_default_provider_does_not_remap_forbidden():
+    client = _make_client(
+        create=AsyncMock(side_effect=_status_error(anthropic.PermissionDeniedError, 403))
+    )
+
+    with pytest.raises(anthropic.PermissionDeniedError):
+        await AnthropicBackend(client=client).complete("sys", "msg", 10)
