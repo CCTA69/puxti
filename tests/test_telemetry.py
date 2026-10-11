@@ -1,7 +1,6 @@
 """Unit tests for the telemetry module."""
 from unittest.mock import MagicMock, patch
 
-
 # ── is_enabled ────────────────────────────────────────────────────────────────
 
 def test_is_enabled_false_by_default():
@@ -69,7 +68,10 @@ def test_get_install_id_stable_across_calls(tmp_path):
 
 def test_get_install_id_returns_existing_when_present():
     existing_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-    with patch("puxti.telemetry._load_config", return_value={"telemetry": {"install_id": existing_id}}):
+    with patch(
+        "puxti.telemetry._load_config",
+        return_value={"telemetry": {"install_id": existing_id}},
+    ):
         from puxti.telemetry import get_install_id
         assert get_install_id() == existing_id
 

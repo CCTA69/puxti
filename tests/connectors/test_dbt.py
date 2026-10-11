@@ -1,10 +1,10 @@
 import json
-import pytest
 from pathlib import Path
+
+import pytest
 
 from puxti.connectors.dbt import DbtConnector, _rename_column_in_sql
 from puxti.models import ChangeType, EntityType, SemanticChangeEvent
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -21,10 +21,14 @@ MANIFEST = {
             "tags": [],
             "columns": {
                 "order_id": {"name": "order_id", "description": "PK", "data_type": "integer"},
-                "order_date": {"name": "order_date", "description": "Date placed", "data_type": "date"},
+                "order_date": {
+                    "name": "order_date", "description": "Date placed", "data_type": "date",
+                },
                 "amount": {"name": "amount", "description": "Total amount", "data_type": "numeric"},
             },
-            "depends_on": {"nodes": ["model.jaffle_shop.stg_orders", "source.jaffle_shop.raw.orders"]},
+            "depends_on": {
+                "nodes": ["model.jaffle_shop.stg_orders", "source.jaffle_shop.raw.orders"],
+            },
         },
         "model.jaffle_shop.stg_orders": {
             "resource_type": "model",
@@ -50,7 +54,9 @@ MANIFEST = {
             "tags": [],
             "columns": {
                 "month": {"name": "month", "description": "", "data_type": "date"},
-                "total_revenue": {"name": "total_revenue", "description": "", "data_type": "numeric"},
+                "total_revenue": {
+                    "name": "total_revenue", "description": "", "data_type": "numeric",
+                },
             },
             "depends_on": {"nodes": ["model.jaffle_shop.orders"]},
         },
@@ -222,8 +228,15 @@ async def test_column_rename_generates_diffs(connector):
         change_event_id="evt-001",
         entity_id="model.jaffle_shop.orders.order_date",
         change_type=ChangeType.STRUCTURAL,
-        semantic_context="order_date renamed to recorded_date to clarify it is the date the order was recorded, not the transaction date",
-        affected_entity_ids=["model.jaffle_shop.orders", "model.jaffle_shop.revenue", "model.jaffle_shop.stg_orders"],
+        semantic_context=(
+            "order_date renamed to recorded_date to clarify it is the date the order was "
+            "recorded, not the transaction date"
+        ),
+        affected_entity_ids=[
+            "model.jaffle_shop.orders",
+            "model.jaffle_shop.revenue",
+            "model.jaffle_shop.stg_orders",
+        ],
         reasoning="Column rename — deterministic propagation across all referencing models",
         change={"before": {"name": "order_date"}, "after": {"name": "recorded_date"}},
     )

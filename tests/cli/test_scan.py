@@ -19,7 +19,8 @@ def test_scan_exits_when_no_dbt_project_dir():
         mock_settings.dbt_project_dir = None
         result = runner.invoke(app, ["scan"])
     assert result.exit_code == 1
-    assert "dbt project directory" in result.output.lower() or "dbt_project_dir" in result.output.lower()
+    output = result.output.lower()
+    assert "dbt project directory" in output or "dbt_project_dir" in output
 
 
 def test_scan_happy_path_prints_summary():

@@ -1,14 +1,13 @@
 """Tests for SemanticScanner — Knowledge Graph bootstrapping."""
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from puxti.core.scanner import SemanticScanner, ScanResult
+from puxti.core.scanner import ScanResult, SemanticScanner
 from puxti.llm import INPUT_COST_PER_MTOK, OUTPUT_COST_PER_MTOK, LLMResponse, TokenCount
 from puxti.models import Definition, Edge, EdgeType, Entity, EntityType, SemanticEdge
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -66,7 +65,9 @@ def _make_connector(
     sql_map: dict[str, str] | None = None,
 ) -> MagicMock:
     connector = MagicMock()
-    connector.extract_entities = AsyncMock(return_value=entities or [ORDERS_ENTITY, CUSTOMERS_ENTITY])
+    connector.extract_entities = AsyncMock(
+        return_value=entities or [ORDERS_ENTITY, CUSTOMERS_ENTITY]
+    )
     connector.extract_lineage = AsyncMock(return_value=lineage or [])
     connector.get_model_sql_map = MagicMock(return_value=sql_map or {
         ORDERS_ENTITY.id: ORDERS_SQL,
@@ -77,7 +78,12 @@ def _make_connector(
 
 def _make_console(inputs: list[str] | None = None) -> MagicMock:
     console = MagicMock()
-    console.status = MagicMock(return_value=MagicMock(__enter__=MagicMock(return_value=None), __exit__=MagicMock(return_value=False)))
+    console.status = MagicMock(
+        return_value=MagicMock(
+            __enter__=MagicMock(return_value=None),
+            __exit__=MagicMock(return_value=False),
+        )
+    )
     if inputs:
         console.input = MagicMock(side_effect=inputs)
     else:
@@ -358,7 +364,9 @@ async def test_scan_auto_increments_version_for_existing_definition():
     ])
     scanner = SemanticScanner(backend=backend)
     graph = _make_graph()
-    graph.get_latest_definition = AsyncMock(side_effect=lambda eid: existing if eid == ORDERS_ENTITY.id else None)
+    graph.get_latest_definition = AsyncMock(
+        side_effect=lambda eid: existing if eid == ORDERS_ENTITY.id else None
+    )
     connector = _make_connector()
     console = _make_console(inputs=["y", "n"])
 
