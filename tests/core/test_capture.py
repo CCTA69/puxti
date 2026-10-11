@@ -1,10 +1,16 @@
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from puxti.core.capture import SemanticCapture, _build_user_message
-from puxti.llm import INPUT_COST_PER_MTOK, OUTPUT_COST_PER_MTOK, LLMBillingError, LLMResponse, TokenCount
+from puxti.llm import (
+    INPUT_COST_PER_MTOK,
+    OUTPUT_COST_PER_MTOK,
+    LLMBillingError,
+    LLMResponse,
+    TokenCount,
+)
 from puxti.models import (
     ChangeEvent,
     ChangeStatus,
@@ -15,7 +21,6 @@ from puxti.models import (
     EntityType,
     SemanticEdge,
 )
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -34,9 +39,15 @@ def _make_backend(payload: dict) -> MagicMock:
 
 
 ENRICHMENT_PAYLOAD = {
-    "enriched_description": "order_date renamed to recorded_date to clarify it captures when the order was recorded in the system, not the transaction date.",
+    "enriched_description": (
+        "order_date renamed to recorded_date to clarify it captures when the order was "
+        "recorded in the system, not the transaction date."
+    ),
     "affected_entity_ids": ["model.jaffle_shop.orders", "model.jaffle_shop.revenue"],
-    "reasoning": "revenue references order_date via date_trunc — renaming the column cascades to that model.",
+    "reasoning": (
+        "revenue references order_date via date_trunc — renaming the column cascades "
+        "to that model."
+    ),
     "suggested_semantic_edges": [
         {
             "from_entity_id": "model.jaffle_shop.revenue",

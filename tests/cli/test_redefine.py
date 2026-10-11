@@ -76,7 +76,6 @@ def test_redefine_exits_cleanly_when_no_dependents_at_all():
 
 def test_redefine_falls_back_to_structural_dependents():
     """No semantic dependents but structural ones exist — should surface them."""
-    from puxti.models import EntityType
 
     structural_dep = MagicMock()
     structural_dep.id = "model.demo_shop.reports"
@@ -143,14 +142,22 @@ def test_redefine_falls_back_to_structural_dependents():
 
 
 def test_redefine_happy_path_prints_pr_url():
-    from puxti.models import EntityType, FileDiff, PropagationResult, SemanticChangeEvent, ChangeType
+    from puxti.models import (
+        FileDiff,
+        PropagationResult,
+    )
 
     mock_graph = MagicMock()
     mock_graph.connect = AsyncMock()
     mock_graph.close = AsyncMock()
     mock_graph.get_latest_definition = AsyncMock(return_value=None)
     mock_graph.get_semantic_dependents_with_depth = AsyncMock(return_value=[
-        (MagicMock(id="model.demo_shop.customers", name="customers", type=MagicMock(value="model")), 1),
+        (
+            MagicMock(
+                id="model.demo_shop.customers", name="customers", type=MagicMock(value="model"),
+            ),
+            1,
+        ),
     ])
     mock_graph.get_structural_ancestors = AsyncMock(return_value=[])
     mock_graph.upsert_definition = AsyncMock()
@@ -202,7 +209,6 @@ def test_redefine_happy_path_prints_pr_url():
 
 
 def test_redefine_dry_run_shows_cost_estimate():
-    from puxti.models import EntityType
 
     dep = MagicMock()
     dep.id = "model.demo_shop.customers"
@@ -299,7 +305,12 @@ def test_redefine_pr_failure_leaves_graph_unchanged():
     mock_graph.close = AsyncMock()
     mock_graph.get_latest_definition = AsyncMock(return_value=None)
     mock_graph.get_semantic_dependents_with_depth = AsyncMock(return_value=[
-        (MagicMock(id="model.demo_shop.customers", name="customers", type=MagicMock(value="model")), 1),
+        (
+            MagicMock(
+                id="model.demo_shop.customers", name="customers", type=MagicMock(value="model"),
+            ),
+            1,
+        ),
     ])
     mock_graph.get_structural_ancestors = AsyncMock(return_value=[])
     mock_graph.upsert_definition = AsyncMock()

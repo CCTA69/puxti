@@ -3,9 +3,15 @@ import re
 
 import pytest
 
-from puxti.connectors.github import GitHubConnector, _companion_section, _pr_body, _pr_title, _needs_attention, _attention_reason
+from puxti.connectors.github import (
+    GitHubConnector,
+    _attention_reason,
+    _companion_section,
+    _needs_attention,
+    _pr_body,
+    _pr_title,
+)
 from puxti.models import ChangeType, FileDiff, PropagationResult, SemanticChangeEvent
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -19,7 +25,10 @@ EVENT = SemanticChangeEvent(
     change_event_id="evt-aabbccdd-1234",
     entity_id="model.jaffle_shop.orders.order_date",
     change_type=ChangeType.STRUCTURAL,
-    semantic_context="order_date renamed to recorded_date to clarify it is the date the order was recorded, not the transaction date.",
+    semantic_context=(
+        "order_date renamed to recorded_date to clarify it is the date the order was "
+        "recorded, not the transaction date."
+    ),
     affected_entity_ids=["model.jaffle_shop.orders", "model.jaffle_shop.revenue"],
     reasoning="revenue references order_date via date_trunc — the rename cascades.",
     change={"before": {"name": "order_date"}, "after": {"name": "recorded_date"}},
@@ -248,18 +257,40 @@ async def test_open_pr_custom_base_branch(httpx_mock):
         url=f"https://api.github.com/repos/{REPO}/git/ref/heads/develop",
         json={"object": {"sha": BASE_SHA}},
     )
-    httpx_mock.add_response(method="POST", url=f"https://api.github.com/repos/{REPO}/git/refs", status_code=201, json={})
-    httpx_mock.add_response(method="GET", url=re.compile(rf"https://api\.github\.com/repos/{re.escape(REPO)}/contents/models/orders\.sql"), status_code=404, json={})
-    httpx_mock.add_response(method="PUT", url=f"https://api.github.com/repos/{REPO}/contents/models/orders.sql", json={})
-    httpx_mock.add_response(method="GET", url=re.compile(rf"https://api\.github\.com/repos/{re.escape(REPO)}/contents/models/revenue\.sql"), status_code=404, json={})
-    httpx_mock.add_response(method="PUT", url=f"https://api.github.com/repos/{REPO}/contents/models/revenue.sql", json={})
-    httpx_mock.add_response(method="POST", url=f"https://api.github.com/repos/{REPO}/pulls", status_code=201, json={"html_url": PR_URL})
+    httpx_mock.add_response(
+        method="POST", url=f"https://api.github.com/repos/{REPO}/git/refs",
+        status_code=201, json={},
+    )
+    httpx_mock.add_response(
+        method="GET",
+        url=re.compile(rf"https://api\.github\.com/repos/{re.escape(REPO)}/contents/models/orders\.sql"),
+        status_code=404, json={},
+    )
+    httpx_mock.add_response(
+        method="PUT", url=f"https://api.github.com/repos/{REPO}/contents/models/orders.sql",
+        json={},
+    )
+    httpx_mock.add_response(
+        method="GET",
+        url=re.compile(rf"https://api\.github\.com/repos/{re.escape(REPO)}/contents/models/revenue\.sql"),
+        status_code=404, json={},
+    )
+    httpx_mock.add_response(
+        method="PUT", url=f"https://api.github.com/repos/{REPO}/contents/models/revenue.sql",
+        json={},
+    )
+    httpx_mock.add_response(
+        method="POST", url=f"https://api.github.com/repos/{REPO}/pulls",
+        status_code=201, json={"html_url": PR_URL},
+    )
 
     result = await connector.open_pr(RESULT.model_copy(), EVENT)
     assert result.pr_url == PR_URL
 
     import json
-    pr_request = next(r for r in httpx_mock.get_requests() if r.method == "POST" and "/pulls" in str(r.url))
+    pr_request = next(
+        r for r in httpx_mock.get_requests() if r.method == "POST" and "/pulls" in str(r.url)
+    )
     payload = json.loads(pr_request.read())
     assert payload["base"] == "develop"
 
@@ -377,13 +408,22 @@ def test_needs_attention_false_for_clean_diffs():
     assert not _needs_attention("Semantic redefinition — hop depth 1, high confidence")
 
 def test_attention_reason_naming_conflict():
-    assert _attention_reason("Naming conflict in `x` — manual resolution required") == "naming conflict — see inline comment"
+    assert (
+        _attention_reason("Naming conflict in `x` — manual resolution required")
+        == "naming conflict — see inline comment"
+    )
 
 def test_attention_reason_verify_carefully():
-    assert _attention_reason("hop depth 2, verify carefully") == "LLM-generated at hop 2 — verify logic"
+    assert (
+        _attention_reason("hop depth 2, verify carefully")
+        == "LLM-generated at hop 2 — verify logic"
+    )
 
 def test_attention_reason_manual_review():
-    assert _attention_reason("hop depth 4, manual review required") == "too deep to generate SQL — review for impact"
+    assert (
+        _attention_reason("hop depth 4, manual review required")
+        == "too deep to generate SQL — review for impact"
+    )
 
 
 # ── _companion_section ────────────────────────────────────────────────────────
@@ -503,9 +543,11 @@ async def test_open_pr_includes_companions_in_body(httpx_mock, connector):
     import json
     _register_happy_path(httpx_mock)
 
-    result = await connector.open_pr(RESULT.model_copy(), EVENT, companions=[AIRFLOW_COMPANION])
+    await connector.open_pr(RESULT.model_copy(), EVENT, companions=[AIRFLOW_COMPANION])
 
-    pr_req = next(r for r in httpx_mock.get_requests() if r.method == "POST" and "/pulls" in str(r.url))
+    pr_req = next(
+        r for r in httpx_mock.get_requests() if r.method == "POST" and "/pulls" in str(r.url)
+    )
     payload = json.loads(pr_req.read())
     assert "## Related PRs" in payload["body"]
     assert "acme/airflow#3" in payload["body"]

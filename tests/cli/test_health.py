@@ -163,7 +163,7 @@ def test_health_dbt_not_configured_shows_dash():
 
 
 def test_health_airflow_dags_dir_ok(tmp_path):
-    from puxti.workspace import WorkspaceConfig, ConnectorConfig
+    from puxti.workspace import ConnectorConfig, WorkspaceConfig
 
     mock_graph = MagicMock()
     mock_graph.connect = AsyncMock()
@@ -202,7 +202,7 @@ def test_health_airflow_dags_dir_ok(tmp_path):
 
 
 def test_health_airflow_dags_dir_missing_exits_nonzero(tmp_path):
-    from puxti.workspace import WorkspaceConfig, ConnectorConfig
+    from puxti.workspace import ConnectorConfig, WorkspaceConfig
 
     mock_graph = MagicMock()
     mock_graph.connect = AsyncMock()
@@ -241,7 +241,7 @@ def test_health_airflow_dags_dir_missing_exits_nonzero(tmp_path):
 
 
 def test_health_airflow_not_configured_shows_dash():
-    from puxti.workspace import WorkspaceConfig, ConnectorConfig
+    from puxti.workspace import ConnectorConfig, WorkspaceConfig
 
     mock_graph = MagicMock()
     mock_graph.connect = AsyncMock()

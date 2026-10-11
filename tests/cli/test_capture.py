@@ -42,7 +42,8 @@ def test_capture_exits_when_no_dbt_project_dir(monkeypatch):
         ])
 
     assert result.exit_code == 1
-    assert "dbt project directory" in result.output.lower() or "dbt_project_dir" in result.output.lower()
+    output = result.output.lower()
+    assert "dbt project directory" in output or "dbt_project_dir" in output
 
 
 def test_capture_exits_when_no_github_token(monkeypatch):
@@ -212,7 +213,7 @@ def test_capture_no_diffs_exits_cleanly():
 
 def test_capture_warns_when_entity_not_in_graph():
     """When the entity ID isn't in the graph, capture should warn but continue."""
-    from puxti.models import ChangeType, FileDiff, PropagationResult, SemanticChangeEvent
+    from puxti.models import ChangeType, PropagationResult, SemanticChangeEvent
 
     semantic_event = SemanticChangeEvent(
         change_event_id="evt-warn",
@@ -274,7 +275,10 @@ def test_capture_warns_when_entity_not_in_graph():
         ], input="y\n")
 
     assert result.exit_code == 0
-    assert "not found in the Knowledge Graph" in result.output or "resolving lineage by model name" in result.output
+    assert (
+        "not found in the Knowledge Graph" in result.output
+        or "resolving lineage by model name" in result.output
+    )
     assert "puxti describe" in result.output
 
 

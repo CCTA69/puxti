@@ -3,12 +3,16 @@
 import json
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
-from puxti.core.redefine import SemanticRedefiner, _annotation_only_diff, _annotate_sql, _conflict_annotation_diff, _first_sentence, _ensure_newline
+from puxti.core.redefine import (
+    SemanticRedefiner,
+    _annotate_sql,
+    _annotation_only_diff,
+    _conflict_annotation_diff,
+    _ensure_newline,
+    _first_sentence,
+)
 from puxti.llm import LLMResponse
 from puxti.models import Entity, EntityType
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -87,7 +91,10 @@ async def test_hop2_generates_sql_with_verify_label(tmp_path):
     connector = _make_connector(node_path="models/customers.sql")
     llm_payload = {
         "reasoning": "CLV uses gross_revenue, now excludes refunds.",
-        "proposed_sql": "select customer_id, sum(gross_revenue) as lifetime_value from orders where not is_refund group by 1",
+        "proposed_sql": (
+            "select customer_id, sum(gross_revenue) as lifetime_value "
+            "from orders where not is_refund group by 1"
+        ),
         "confidence": "medium",
     }
     backend = _make_backend(llm_payload)
@@ -316,7 +323,11 @@ def _make_passthrough_connector():
 
 
 async def test_passthrough_diffs_generates_diff_for_entity_and_ancestors(tmp_path):
-    payload = {"reasoning": "Added order_segment to SELECT.", "proposed_sql": "select id, subtotal, order_segment from raw_orders", "confidence": "high"}
+    payload = {
+        "reasoning": "Added order_segment to SELECT.",
+        "proposed_sql": "select id, subtotal, order_segment from raw_orders",
+        "confidence": "high",
+    }
     backend = _make_backend(payload)
 
     redefiner = SemanticRedefiner(backend=backend)
@@ -337,7 +348,12 @@ async def test_passthrough_diffs_generates_diff_for_entity_and_ancestors(tmp_pat
 
 async def test_passthrough_diffs_skips_semantically_irrelevant_model(tmp_path):
     """When LLM returns no_change:true (model has no relation to attribute), skip it."""
-    payload = {"reasoning": "stg_supplies has no customer dimension.", "proposed_sql": None, "no_change": True, "confidence": "high"}
+    payload = {
+        "reasoning": "stg_supplies has no customer dimension.",
+        "proposed_sql": None,
+        "no_change": True,
+        "confidence": "high",
+    }
     backend = _make_backend(payload)
 
     redefiner = SemanticRedefiner(backend=backend)
@@ -355,7 +371,11 @@ async def test_passthrough_diffs_skips_semantically_irrelevant_model(tmp_path):
 
 async def test_passthrough_diffs_skips_unchanged_sql(tmp_path):
     """If the LLM returns the same SQL (e.g. select * already passes it), no diff."""
-    payload = {"reasoning": "select * already includes order_segment.", "proposed_sql": ORDERS_SQL, "confidence": "high"}
+    payload = {
+        "reasoning": "select * already includes order_segment.",
+        "proposed_sql": ORDERS_SQL,
+        "confidence": "high",
+    }
     backend = _make_backend(payload)
 
     redefiner = SemanticRedefiner(backend=backend)
@@ -373,7 +393,11 @@ async def test_passthrough_diffs_skips_unchanged_sql(tmp_path):
 
 async def test_passthrough_diffs_includes_graph_definition_in_prompt(tmp_path):
     """When graph is provided, definition is included in the LLM prompt."""
-    payload = {"reasoning": "Added order_segment.", "proposed_sql": "select id, subtotal, order_segment from raw_orders", "confidence": "high"}
+    payload = {
+        "reasoning": "Added order_segment.",
+        "proposed_sql": "select id, subtotal, order_segment from raw_orders",
+        "confidence": "high",
+    }
     backend = _make_backend(payload)
 
     from puxti.models import Definition

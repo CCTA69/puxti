@@ -2,8 +2,6 @@
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from puxti.models import EntityStatus
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -21,7 +19,10 @@ def _mock_entity(entity_id: str, name: str, etype: str = "model", project: str =
     return e
 
 
-def _mock_graph(entity=None, semantic_deps=None, structural_deps=None, definition=None, edges=None, history=None):
+def _mock_graph(
+    entity=None, semantic_deps=None, structural_deps=None, definition=None, edges=None,
+    history=None,
+):
     g = AsyncMock()
     g.get_entity_by_id = AsyncMock(return_value=entity)
     g.get_semantic_dependents_with_depth = AsyncMock(return_value=semantic_deps or [])
@@ -85,7 +86,9 @@ async def test_impact_of_change_passes_change_type():
     graph = _mock_graph(entity=entity)
     with patch("puxti.mcp_server._graph_connect", new=AsyncMock(return_value=graph)):
         from puxti.mcp_server import impact_of_change
-        result = json.loads(await impact_of_change(entity_id="model.jaffle_shop.orders", change_type="rename"))
+        result = json.loads(
+            await impact_of_change(entity_id="model.jaffle_shop.orders", change_type="rename")
+        )
     assert result["change_type"] == "rename"
 
 
@@ -144,12 +147,17 @@ async def test_definition_history_no_definitions():
 
 
 async def test_definition_history_returns_all_versions():
-    from datetime import datetime, timezone
     from puxti.models import Definition
 
     entity = _mock_entity("model.jaffle_shop.orders", "orders")
-    v1 = Definition(entity_id="model.jaffle_shop.orders", description="First definition.", version=1, created_by="llm")
-    v2 = Definition(entity_id="model.jaffle_shop.orders", description="Updated definition.", version=2, created_by="user")
+    v1 = Definition(
+        entity_id="model.jaffle_shop.orders", description="First definition.",
+        version=1, created_by="llm",
+    )
+    v2 = Definition(
+        entity_id="model.jaffle_shop.orders", description="Updated definition.",
+        version=2, created_by="user",
+    )
     graph = _mock_graph(entity=entity, history=[v1, v2])
     with patch("puxti.mcp_server._graph_connect", new=AsyncMock(return_value=graph)):
         from puxti.mcp_server import definition_history

@@ -14,16 +14,14 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
 
-import pytest
-
 import aiosqlite
+import pytest
 
 from puxti.core.graph import GraphStore, KnowledgeGraph, SqliteKnowledgeGraph
 from puxti.core.graph_postgres import PostgresKnowledgeGraph
 from puxti.models import (
     ChangeEvent,
     ChangeType,
-    CorrectionEvent,
     Definition,
     Edge,
     EdgeType,
@@ -171,8 +169,15 @@ async def test_get_structural_ancestors(kg: KnowledgeGraph) -> None:
     source = await kg.upsert_entity_by_name(_entity("raw_orders"))
     stg = await kg.upsert_entity_by_name(_entity("stg_orders"))
     mart = await kg.upsert_entity_by_name(_entity("orders"))
-    await kg.upsert_edge(Edge(from_entity_id=stg.id, to_entity_id=source.id, type=EdgeType.DEPENDS_ON, connector="dbt"))
-    await kg.upsert_edge(Edge(from_entity_id=mart.id, to_entity_id=stg.id, type=EdgeType.DEPENDS_ON, connector="dbt"))
+    await kg.upsert_edge(
+        Edge(
+            from_entity_id=stg.id, to_entity_id=source.id,
+            type=EdgeType.DEPENDS_ON, connector="dbt",
+        )
+    )
+    await kg.upsert_edge(
+        Edge(from_entity_id=mart.id, to_entity_id=stg.id, type=EdgeType.DEPENDS_ON, connector="dbt")
+    )
     ancestors = await kg.get_structural_ancestors(mart.id)
     ancestor_ids = {e.id for e, _ in ancestors}
     assert stg.id in ancestor_ids
@@ -326,7 +331,9 @@ async def test_save_change_event(kg: KnowledgeGraph) -> None:
 async def test_get_all_entities_with_definitions(kg: KnowledgeGraph) -> None:
     a = await kg.upsert_entity_by_name(_entity("a"))
     b = await kg.upsert_entity_by_name(_entity("b"))
-    await kg.upsert_definition(Definition(entity_id=a.id, description="defined", version=1, created_by="test"))
+    await kg.upsert_definition(
+        Definition(entity_id=a.id, description="defined", version=1, created_by="test")
+    )
     pairs = await kg.get_all_entities_with_definitions()
     d = {e.id: defn for e, defn in pairs}
     assert d[a.id] is not None
@@ -356,8 +363,10 @@ async def test_status_migration_adds_column_and_defaults_bound(tmp_path: Path) -
     async with aiosqlite.connect(str(db_path)) as raw:
         await raw.executescript(_OLD_ENTITIES_SCHEMA)
         await raw.execute(
-            "INSERT INTO entities (id, name, type, source_connector, project, created_at, updated_at) "
-            "VALUES ('e1', 'orders', 'model', 'dbt', 'test', '2024-01-01T00:00:00', '2024-01-01T00:00:00')"
+            "INSERT INTO entities "
+            "(id, name, type, source_connector, project, created_at, updated_at) "
+            "VALUES ('e1', 'orders', 'model', 'dbt', 'test', "
+            "'2024-01-01T00:00:00', '2024-01-01T00:00:00')"
         )
         await raw.commit()
 
@@ -443,7 +452,9 @@ async def test_bind_entity_dedups_and_drops_self_loops(kg: KnowledgeGraph) -> No
 
     edges = await kg.get_entity_semantic_edges(target.id)
     assert not any(e.from_entity_id == target.id and e.to_entity_id == target.id for e in edges)
-    to_upstream = [e for e in edges if e.to_entity_id == upstream.id and e.from_entity_id == target.id]
+    to_upstream = [
+        e for e in edges if e.to_entity_id == upstream.id and e.from_entity_id == target.id
+    ]
     assert len(to_upstream) == 1
 
 

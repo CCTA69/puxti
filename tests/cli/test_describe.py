@@ -62,15 +62,29 @@ def test_describe_overview_shows_entities():
 def test_describe_project_filter_shows_only_matching_project():
     from puxti.models import Definition, Entity, EntityType
 
-    entity_a = Entity(id="model.proj_a.orders", name="orders", type=EntityType.MODEL, source_connector="dbt", project="proj_a")
-    entity_b = Entity(id="model.proj_b.sales", name="sales", type=EntityType.MODEL, source_connector="dbt", project="proj_b")
-    def_a = Definition(entity_id="model.proj_a.orders", description="Orders for project A.", version=1, created_by="scan")
-    def_b = Definition(entity_id="model.proj_b.sales", name="sales", description="Sales for project B.", version=1, created_by="scan")
+    entity_a = Entity(
+        id="model.proj_a.orders", name="orders", type=EntityType.MODEL,
+        source_connector="dbt", project="proj_a",
+    )
+    entity_b = Entity(
+        id="model.proj_b.sales", name="sales", type=EntityType.MODEL,
+        source_connector="dbt", project="proj_b",
+    )
+    def_a = Definition(
+        entity_id="model.proj_a.orders", description="Orders for project A.",
+        version=1, created_by="scan",
+    )
+    def_b = Definition(
+        entity_id="model.proj_b.sales", name="sales", description="Sales for project B.",
+        version=1, created_by="scan",
+    )
 
     mock_graph = MagicMock()
     mock_graph.connect = AsyncMock()
     mock_graph.close = AsyncMock()
-    mock_graph.get_all_entities_with_definitions = AsyncMock(return_value=[(entity_a, def_a), (entity_b, def_b)])
+    mock_graph.get_all_entities_with_definitions = AsyncMock(
+        return_value=[(entity_a, def_a), (entity_b, def_b)]
+    )
     mock_graph.get_all_semantic_edges = AsyncMock(return_value=[])
 
     with patch("puxti.cli.describe.KnowledgeGraph", return_value=mock_graph):
@@ -86,8 +100,13 @@ def test_describe_project_filter_shows_only_matching_project():
 def test_describe_project_filter_exits_when_project_not_found():
     from puxti.models import Definition, Entity, EntityType
 
-    entity = Entity(id="model.proj_a.orders", name="orders", type=EntityType.MODEL, source_connector="dbt", project="proj_a")
-    definition = Definition(entity_id="model.proj_a.orders", description="Orders.", version=1, created_by="scan")
+    entity = Entity(
+        id="model.proj_a.orders", name="orders", type=EntityType.MODEL,
+        source_connector="dbt", project="proj_a",
+    )
+    definition = Definition(
+        entity_id="model.proj_a.orders", description="Orders.", version=1, created_by="scan",
+    )
 
     mock_graph = MagicMock()
     mock_graph.connect = AsyncMock()

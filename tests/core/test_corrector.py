@@ -9,7 +9,6 @@ from puxti.core.corrector import SemanticCorrector
 from puxti.llm import LLMResponse
 from puxti.models import EdgeAssessment, EdgeType, Entity, EntityType, SemanticEdge
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 ORDERS = Entity(

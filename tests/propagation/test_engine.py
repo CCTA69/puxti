@@ -1,10 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from puxti.models import ChangeType, FileDiff, PropagationResult, SemanticChangeEvent
 from puxti.propagation.engine import PropagationEngine
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 

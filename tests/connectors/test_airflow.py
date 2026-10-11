@@ -12,7 +12,6 @@ from puxti.connectors.airflow import (
 )
 from puxti.models import EdgeType, EntityType, SemanticChangeEvent
 
-
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 SIMPLE_DAG = textwrap.dedent('''\

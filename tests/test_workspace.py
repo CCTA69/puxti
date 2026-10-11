@@ -1,13 +1,10 @@
 """Tests for .puxti.yml workspace config loading."""
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-import yaml
 
 from puxti.workspace import WorkspaceConfig, load_workspace
-
 
 # ── load_workspace — file discovery ───────────────────────────────────────────
 
@@ -240,7 +237,9 @@ def test_connector_repos_empty_when_no_workspace():
 def test_cli_capture_uses_workspace_repo(tmp_path):
     """capture reads --repo from .puxti.yml when flag is not passed."""
     from unittest.mock import AsyncMock
+
     from typer.testing import CliRunner
+
     from puxti.cli import app
     from puxti.models import ChangeType, FileDiff, PropagationResult, SemanticChangeEvent
 
@@ -257,7 +256,9 @@ def test_cli_capture_uses_workspace_repo(tmp_path):
         reasoning="",
         change={"before": {"name": "date"}, "after": {"name": "recorded_date"}},
     )
-    diff = FileDiff(file_path="models/orders.sql", before="x", after="y", connector="dbt", description="d")
+    diff = FileDiff(
+        file_path="models/orders.sql", before="x", after="y", connector="dbt", description="d",
+    )
     pr_result = PropagationResult(
         change_event_id="evt-ws", connector="dbt", target_entity_id="model.shop.orders.date",
         diffs=[diff], pr_url="https://github.com/acme/data/pull/1", status="opened",
@@ -316,6 +317,7 @@ def test_cli_capture_flag_overrides_workspace(tmp_path):
     )
 
     from typer.testing import CliRunner
+
     from puxti.cli import app
     from puxti.workspace import ConnectorConfig
 
@@ -352,6 +354,7 @@ def test_cli_capture_flag_overrides_workspace(tmp_path):
 def test_cli_capture_exits_when_no_repo_and_no_workspace():
     """No --repo and no .puxti.yml → exit 1 with guidance."""
     from typer.testing import CliRunner
+
     from puxti.cli import app
 
     runner = CliRunner()
@@ -373,7 +376,9 @@ def test_cli_capture_exits_when_no_repo_and_no_workspace():
 def test_cli_health_checks_workspace_repos():
     """health command runs GitHub write-access check for each connector repo in workspace."""
     from unittest.mock import AsyncMock
+
     from typer.testing import CliRunner
+
     from puxti.cli import app
     from puxti.workspace import ConnectorConfig
 

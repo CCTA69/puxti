@@ -21,8 +21,6 @@ Semantic edges modelled:
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from puxti.models import Definition, EdgeType, EntityStatus, SemanticEdge
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -52,7 +50,9 @@ def _graph(**kwargs) -> AsyncMock:
     return g
 
 
-def _definition(entity_name: str, description: str, version: int, created_by: str = "llm") -> Definition:
+def _definition(
+    entity_name: str, description: str, version: int, created_by: str = "llm",
+) -> Definition:
     return Definition(
         entity_id=f"model.{PROJECT}.{entity_name}",
         description=description,
@@ -109,8 +109,8 @@ async def test_rename_charge_amount_in_staging_shows_cascade():
 
 
 async def test_rename_shows_intermediate_as_structural_only():
-    """int_payments__micropayments_adjustments_refunds_joined has no semantic edge to stg_littlepay__micropayments,
-    so it should appear as structural-only."""
+    """int_payments__micropayments_adjustments_refunds_joined has no semantic edge to
+    stg_littlepay__micropayments, so it should appear as structural-only."""
     micropayments = _model("stg_littlepay__micropayments")
     int_joined = _model("int_payments__micropayments_adjustments_refunds_joined")
     fct_rides = _model("fct_payments_rides_v2")
@@ -124,10 +124,15 @@ async def test_rename_shows_intermediate_as_structural_only():
     with patch("puxti.mcp_server._graph_connect", new=AsyncMock(return_value=graph)):
         from puxti.mcp_server import impact_of_change
         result = json.loads(
-            await impact_of_change(entity_id="model.cal_itp.stg_littlepay__micropayments", change_type="rename")
+            await impact_of_change(
+                entity_id="model.cal_itp.stg_littlepay__micropayments", change_type="rename"
+            )
         )
 
-    int_row = next(d for d in result["dependents"] if d["name"] == "int_payments__micropayments_adjustments_refunds_joined")
+    int_row = next(
+        d for d in result["dependents"]
+        if d["name"] == "int_payments__micropayments_adjustments_refunds_joined"
+    )
     assert int_row["relationship"] == "structural"
 
 
@@ -184,7 +189,9 @@ async def test_consumers_of_micropayments_intermediate():
     with patch("puxti.mcp_server._graph_connect", new=AsyncMock(return_value=graph)):
         from puxti.mcp_server import consumers
         result = json.loads(
-            await consumers(entity_id="model.cal_itp.int_payments__micropayments_adjustments_refunds_joined")
+            await consumers(
+                entity_id="model.cal_itp.int_payments__micropayments_adjustments_refunds_joined"
+            )
         )
 
     assert result["total_count"] == 1
@@ -233,7 +240,10 @@ async def test_describe_fct_payments_authorisations():
         from_entity_id="model.cal_itp.stg_littlepay__authorisations",
         to_entity_id="model.cal_itp.fct_payments_authorisations",
         type=EdgeType.DERIVED_FROM,
-        description="fct_payments_authorisations derives its authorisation records from the littlepay staging layer",
+        description=(
+            "fct_payments_authorisations derives its authorisation records "
+            "from the littlepay staging layer"
+        ),
         created_by="scan",
     )
     graph = _graph(entity=fct_auth, definition=definition, edges=[incoming_edge])
@@ -342,7 +352,10 @@ async def test_definition_history_authorisations_initial_scan_only():
     history = [
         _definition(
             "stg_littlepay__authorisations",
-            description="One row per authorisation request sent to the payment acquirer for a Littlepay aggregation.",
+            description=(
+                "One row per authorisation request sent to the payment acquirer "
+                "for a Littlepay aggregation."
+            ),
             version=1,
             created_by="llm",
         )
