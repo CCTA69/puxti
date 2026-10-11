@@ -115,14 +115,16 @@ LLM_API_KEY=...
 | `openrouter` | openrouter.ai | [openrouter.ai](https://openrouter.ai) — one key, many models |
 | `gemini` | Gemini OpenAI-compat endpoint | [aistudio.google.com](https://aistudio.google.com) |
 | `bedrock` | Bedrock Mantle (`us-east-1`; other regions via `LLM_BASE_URL`) | Bedrock API key from the AWS console |
+| `bedrock-anthropic` | Claude on Bedrock Mantle, Anthropic Messages API (`us-east-1`; other regions via `LLM_BASE_URL`) | Bedrock API key from the AWS console; set `LLM_MODEL` to the Bedrock model ID |
 | `ollama` | localhost:11434 — no key needed | local install from [ollama.com](https://ollama.com) |
 | `custom` | anything OpenAI-compatible via `LLM_BASE_URL` (vLLM, proxies) | your infrastructure |
 
 Notes:
 
 - **Cost estimates** (`--dry-run`): exact token counts and dollar costs on Anthropic; approximate token counts elsewhere, with dollar costs only when you provide `LLM_INPUT_COST_PER_MTOK` / `LLM_OUTPUT_COST_PER_MTOK` — puxti never guesses a price.
+- **`bedrock-anthropic` token counts**: puxti tries the exact `count_tokens` call first and falls back to an approximate count if the endpoint does not implement it. Dollar costs need `LLM_INPUT_COST_PER_MTOK` / `LLM_OUTPUT_COST_PER_MTOK`.
 - **Quality**: the semantic prompts expect strict JSON output; frontier models handle this reliably, small local models may not.
-- **Not covered**: Vertex AI (OAuth-based short-lived tokens, not a durable key). Claude on Bedrock works through the `bedrock` provider.
+- **Not covered**: Vertex AI (OAuth-based short-lived tokens, not a durable key). Claude on Bedrock works through `bedrock-anthropic` (Anthropic Messages API) or, for any model on Mantle, the OpenAI-compatible `bedrock` provider.
 
 ---
 

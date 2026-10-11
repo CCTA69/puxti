@@ -10,7 +10,8 @@ class Settings(BaseSettings):
     # LLM provider (BYOK). "anthropic" is the default and needs no extra config.
     # Any preset from puxti.llm._PRESETS (openai, mistral, glm, deepseek, groq,
     # openrouter, gemini, bedrock, ollama) or "custom" (requires LLM_BASE_URL)
-    # speaks the OpenAI-compatible wire format.
+    # speaks the OpenAI-compatible wire format. "bedrock-anthropic" uses the
+    # Anthropic Messages API on Bedrock Mantle with LLM_API_KEY as a bearer token.
     llm_provider: str = "anthropic"
     # Required for non-anthropic providers; for anthropic it overrides the
     # built-in default model.

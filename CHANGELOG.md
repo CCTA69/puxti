@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Claude on Bedrock via Mantle's Anthropic endpoint.** `LLM_PROVIDER=bedrock-anthropic` points the native Anthropic backend at `https://bedrock-mantle.us-east-1.api.aws/anthropic` (other regions via `LLM_BASE_URL`) and authenticates with `LLM_API_KEY` as a bearer token. Claude users on Bedrock get the Anthropic Messages API instead of the OpenAI-compatible adapter. The endpoint's `count_tokens` support is not confirmed: when it answers 404/405/501, `--dry-run` falls back to an approximate count and `puxti health` checks the key with a one-token completion. `ANTHROPIC_API_KEY` is never sent to this endpoint. The existing `bedrock` provider is unchanged.
+
+### Changed
+
+- Minimum `anthropic` SDK is now 1.0.0. Earlier versions send `ANTHROPIC_API_KEY` alongside a bearer token and lack `messages.count_tokens`.
+
 ## [0.14.0] — 2026-10-03
 
 ### Added
