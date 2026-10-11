@@ -1,6 +1,6 @@
 [project]
 name = "puxti"
-version = "0.14.0"
+version = "0.15.0"
 description = "Open-source CLI for safe schema and semantic change propagation across dbt projects."
 requires-python = ">=3.12"
 license = "Apache-2.0"
@@ -71,7 +71,7 @@ exclude = [
   "tests", "assets",
   "Makefile",
   "uv.lock",
-  ".github", ".gitignore", ".python-version",
+  ".github", ".gitignore", ".python-version", ".coderabbit.yaml",
   "fix_plan.md",
   "AGENTS.md",
   "CHANGELOG.md",
