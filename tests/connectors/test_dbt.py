@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from puxti.connectors.dbt import DbtConnector, _rename_column_in_sql
-from puxti.connectors.sql_utils import has_qualified_reference, mentions_in_jinja
+from puxti.connectors.sql_utils import mentions_in_jinja, rename_column_fully
 from puxti.models import ChangeType, EntityType, SemanticChangeEvent
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -376,26 +376,56 @@ async def test_column_rename_mixed_refs_goes_to_unverified(tmp_path, is_source):
     diffs, unverified = await connector.generate_changes(event)
 
     mixed_id = "model.jaffle_shop.orders" if is_source else "model.jaffle_shop.report"
+    mixed_file = "models/orders.sql" if is_source else "models/report.sql"
     assert mixed_id in unverified
-    assert all(mixed not in d.after for d in diffs)
-    assert all("s.recorded_date" not in d.after for d in diffs)
+    assert all(d.file_path != mixed_file for d in diffs)
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "select order_date, o.order_date from orders o",
+        'select order_date, o."order_date" from orders o',
+        "select order_date, o.`order_date` from orders o",
+        "select order_date, o.[order_date] from orders o",
+        "select order_date, o . order_date from orders o",
+        "select order_date, o.ORDER_DATE from orders o",
+        "select order_date, (o).order_date from orders o",
+        "select order_date, {{ ref('orders') }}.order_date from {{ ref('orders') }}",
+    ],
+)
+def test_rename_fully_refuses_qualified_reference(sql):
+    assert rename_column_fully(sql, "order_date", "recorded_date") is None
 
 
 @pytest.mark.parametrize(
     "sql, expected",
     [
-        ("select o.order_date from orders o", True),
-        ('select o."order_date" from orders o', True),
-        ("select o.`order_date` from orders o", True),
-        ("select order_date from orders", False),
-        ("select 'o.order_date' from orders", False),
-        ("select 1 -- o.order_date", False),
-        ("select o.recorded_order_date from orders o", False),
-        ("select {{ o.order_date }} from orders", False),
+        ("select order_date from orders", "select recorded_date from orders"),
+        ("select 'o.order_date' from orders", "select 'o.order_date' from orders"),
+        ("select 1 -- o.order_date", "select 1 -- o.order_date"),
+        ("select o.recorded_order_date from orders o",
+         "select o.recorded_order_date from orders o"),
+        ("select {{ o.order_date }} from orders", "select {{ o.order_date }} from orders"),
+        # Dots inside a quoted name are not qualifiers.
+        ("select order_date from `proj.ds.order_date`",
+         "select recorded_date from `proj.ds.order_date`"),
+        ('select "o.order_date" as x, order_date from t',
+         'select "o.order_date" as x, recorded_date from t'),
+        # A quoted name in another case is a different column.
+        ('select order_date, o."ORDER_DATE" from t o',
+         'select recorded_date, o."ORDER_DATE" from t o'),
+        # Relation names and path segments are not column references.
+        ("select order_date from raw.order_date",
+         "select recorded_date from raw.order_date"),
+        ("select order_date from proj.order_date.tbl",
+         "select recorded_date from proj.order_date.tbl"),
+        ('select order_date from "raw"."order_date"',
+         'select recorded_date from "raw"."order_date"'),
     ],
 )
-def test_has_qualified_reference(sql, expected):
-    assert has_qualified_reference(sql, "order_date") is expected
+def test_rename_fully_allows_non_qualified(sql, expected):
+    assert rename_column_fully(sql, "order_date", "recorded_date") == expected
 
 
 async def test_column_rename_diff_content(connector):
