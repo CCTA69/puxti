@@ -24,7 +24,8 @@ from puxti.settings import settings
 
 _logger = logging.getLogger(__name__)
 
-_DEF_EST_OUTPUT_TOKENS = 80   # definitions are short
+# Billed output per definition call incl. thinking, claude-sonnet-5-5: mean 151, max 395 (n=16)
+_DEF_EST_OUTPUT_TOKENS = 150
 _MAX_SQL_CHARS = 15_000       # cap SQL size to prevent injection via large model files
 _EDGES_EST_OUTPUT_TOKENS = 2048  # per batch call; actual total scales with entity count
 
@@ -74,8 +75,7 @@ Always respond with valid JSON:
 Rules:
 - Be specific to this model, not generic
 - Focus on business meaning, not implementation detail
-- If the model's purpose is unclear from the SQL, say so honestly
-- Never exceed 3 sentences"""
+- If the model's purpose is unclear from the SQL, say so honestly"""
 
 _EDGES_SYSTEM_PROMPT = """You are Puxti's semantic scanner.
 
@@ -141,7 +141,7 @@ class SemanticScanner:
         response = await self._backend.complete(
             system=_DEFINITION_SYSTEM_PROMPT,
             user_message=user_message,
-            max_tokens=256,
+            max_tokens=2048,
         )
         raw = strip_markdown_fences(response.text)
         return json.loads(raw)["definition"]

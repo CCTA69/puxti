@@ -38,7 +38,7 @@ Together, these layers let Puxti reason about what a change *means* across the s
 ## Requirements
 
 - **Python 3.12 or 3.13** — dbt-duckdb is not yet compatible with Python 3.14
-- **An LLM API key** (BYOK — bring your own key, from any supported provider) — for semantic reasoning. Your key stays in your environment and is used to call your provider directly — nothing goes through a Puxti-controlled server. The default provider is Anthropic (`claude-sonnet-4-6`): typical cost for `puxti scan` on a 20-model project is under $0.05; `puxti capture` on a single column is under $0.02. See [LLM providers](#llm-providers-byok) for OpenAI, Mistral, GLM, DeepSeek, Groq, OpenRouter, Gemini, AWS Bedrock, and local Ollama/vLLM.
+- **An LLM API key** (BYOK — bring your own key, from any supported provider) — for semantic reasoning. Your key stays in your environment and is used to call your provider directly — nothing goes through a Puxti-controlled server. The default provider is Anthropic (`claude-sonnet-5-5`): typical cost for `puxti scan` on a 20-model project is under $0.05; `puxti capture` on a single column is under $0.02. See [LLM providers](#llm-providers-byok) for OpenAI, Mistral, GLM, DeepSeek, Groq, OpenRouter, Gemini, AWS Bedrock, and local Ollama/vLLM.
 - **GitHub personal access token** — with `repo` scope (Contents + Pull requests write)
 - **A dbt project** with a compiled `manifest.json` (`dbt compile` or `dbt run`)
 
@@ -69,7 +69,7 @@ cp .env.example .env
 | `DBT_PROJECT_DIR` | Path to your dbt project root (the directory containing `dbt_project.yml`) |
 | `DBT_PROFILES_DIR` | Path to your dbt profiles directory — usually `~/.dbt` |
 | `LLM_PROVIDER` | LLM provider (optional, default `anthropic`) — see [LLM providers](#llm-providers-byok) |
-| `LLM_MODEL` | Model ID (required for non-Anthropic providers; overrides the default `claude-sonnet-4-6` otherwise) |
+| `LLM_MODEL` | Model ID (required for non-Anthropic providers; overrides the default `claude-sonnet-5-5` otherwise) |
 | `LLM_API_KEY` | API key for the selected provider (falls back to `ANTHROPIC_API_KEY` for the default provider) |
 | `LLM_BASE_URL` | Override the provider's base URL (custom endpoints, non-default Bedrock regions) |
 | `LLM_INPUT_COST_PER_MTOK` / `LLM_OUTPUT_COST_PER_MTOK` | USD per million tokens for `--dry-run` cost estimates on models puxti doesn't know (optional) |

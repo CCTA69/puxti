@@ -29,13 +29,13 @@ _logger = logging.getLogger(__name__)
 
 # Default model when the provider is anthropic and LLM_MODEL is not set —
 # never in the read path
-LLM_MODEL = "claude-sonnet-4-6"
+LLM_MODEL = "claude-sonnet-5-5"
 
 # Pricing for LLM_MODEL (USD per million tokens). Third-party model prices are
 # never hardcoded — they drift and a wrong dollar figure is worse than none.
 # Users supply LLM_INPUT_COST_PER_MTOK / LLM_OUTPUT_COST_PER_MTOK instead.
-INPUT_COST_PER_MTOK = 3.00
-OUTPUT_COST_PER_MTOK = 15.00
+INPUT_COST_PER_MTOK = 2.00
+OUTPUT_COST_PER_MTOK = 10.00
 
 # OpenAI-compatible provider presets. All of these speak the OpenAI wire
 # format at their own base URL; LLM_BASE_URL overrides a preset (e.g. a
@@ -229,7 +229,8 @@ class AnthropicBackend:
                 raise LLMBillingError(self._billing_message()) from exc
             raise
         return LLMResponse(
-            text=response.content[0].text,
+            # Thinking models can lead with a thinking block, which has no text.
+            text="".join(b.text for b in response.content if b.type == "text"),
             truncated=response.stop_reason == "max_tokens",
         )
 

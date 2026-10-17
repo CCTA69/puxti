@@ -54,13 +54,13 @@ Rules:
   reasoning under "Assumes upstream adds:" so the reviewer knows what must exist first
 - confidence: high = straightforward filter/aggregation change; medium = logic inferred
   but verify; low = complex business logic, recommend manual review
-- CRITICAL — naming conflict rule: if the model already contains a column or expression
-  with the same name as an attribute introduced by the new definition, but with different
-  semantics (e.g. a computed CASE expression that classifies data differently, a filter
-  using a different value domain, or any logic that would be silently overwritten), you
-  MUST set conflict to true, set proposed_sql to null, and describe the collision clearly
-  in conflict_description. DO NOT remove or overwrite existing business logic to resolve
-  a naming conflict — that decision belongs to the engineer, not to you."""
+- Naming conflicts: if the model already contains a column or expression with the same
+  name as an attribute introduced by the new definition, but with different semantics
+  (e.g. a computed CASE expression that classifies data differently, a filter using a
+  different value domain, or any logic that would be silently overwritten), set conflict
+  to true, set proposed_sql to null, and describe the collision clearly in
+  conflict_description. Leave the existing business logic untouched; resolving a naming
+  conflict is the engineer's decision."""
 
 _PASSTHROUGH_SYSTEM_PROMPT = """You are Puxti's semantic redefiner.
 
@@ -87,10 +87,10 @@ Rules:
   has an established renaming convention (e.g. stripping a prefix)
 - If the model uses select * it already passes the attribute through — set no_change
   to true, explain in reasoning, and set proposed_sql to null
-- CRITICAL — semantic relevance rule: if the model has no semantic relationship to
-  the new attribute (e.g., adding a customer classification field to a supplies cost
-  model, or a pricing field to a user preferences model), set no_change to true and
-  proposed_sql to null. Do not add attributes to models where they carry no meaning.
+- Semantic relevance: if the model has no semantic relationship to the new attribute
+  (e.g., adding a customer classification field to a supplies cost model, or a pricing
+  field to a user preferences model), set no_change to true and proposed_sql to null.
+  An attribute added to a model where it carries no meaning is noise for the reviewer.
 - confidence: high = simple passthrough add; medium = renaming convention applies;
   low = cannot determine where to add it safely"""
 
