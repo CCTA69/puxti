@@ -24,7 +24,7 @@ from puxti.settings import settings
 
 _logger = logging.getLogger(__name__)
 
-_DEF_EST_OUTPUT_TOKENS = 80   # definitions are short
+_DEF_EST_OUTPUT_TOKENS = 150  # billed, incl. thinking, on claude-sonnet-5-5: mean 151, max 395 over 16 calls
 _MAX_SQL_CHARS = 15_000       # cap SQL size to prevent injection via large model files
 _EDGES_EST_OUTPUT_TOKENS = 2048  # per batch call; actual total scales with entity count
 
