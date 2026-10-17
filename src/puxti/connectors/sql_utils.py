@@ -47,11 +47,17 @@ def rename_column_in_sql(sql: str, old_name: str, new_name: str) -> str:
     """
     if not _IDENTIFIER.fullmatch(new_name):
         raise ValueError(f"new column name is not a valid SQL identifier: {new_name!r}")
-    # re.split with a capture group alternates plain SQL (even indexes) and
-    # Jinja spans (odd indexes); only the plain segments are rewritten.
-    parts = _JINJA_SPAN.split(sql)
-    parts[::2] = [_rename_in_plain_sql(p, old_name, new_name) for p in parts[::2]]
-    return "".join(parts)
+    spans: list[str] = []
+
+    def stash(m: re.Match) -> str:
+        spans.append(m.group(0))
+        return f"\x00{len(spans) - 1}\x00"
+
+    # Jinja spans become quote-free placeholders so a literal or comment that
+    # contains one ('{{ var("x") }}') stays a single token for the rename.
+    masked = _JINJA_SPAN.sub(stash, sql)
+    renamed = _rename_in_plain_sql(masked, old_name, new_name)
+    return re.sub(r"\x00(\d+)\x00", lambda m: spans[int(m.group(1))], renamed)
 
 
 def mentions_in_jinja(sql: str, name: str) -> bool:
@@ -74,8 +80,8 @@ def _rename_in_plain_sql(sql: str, old_name: str, new_name: str) -> str:
     old = re.escape(old_name)
     pattern = re.compile(
         rf"""(?P<skip>'(?:''|[^'])*'|--[^\n]*|/\*.*?\*/)"""
-        rf"""|(?P<quoted>`[^`]*`|"(?:""|[^"])*"|\[[^\]]*\])"""
-        rf"""|(?<!\w\.)\b(?P<bare>{old})\b""",
+        rf"""|(?P<quoted>`[^`]*`|"(?:""|[^"])*"|(?<![\w\])])\[[^\]\[,()'"+\-*/<>=!|&%.:]*\])"""
+        rf"""|(?<![\w"`\]]\.)\b(?P<bare>{old})\b""",
         re.DOTALL | re.IGNORECASE,
     )
 
@@ -85,6 +91,8 @@ def _rename_in_plain_sql(sql: str, old_name: str, new_name: str) -> str:
         if m.group("quoted") is not None:
             # Quoted identifiers are case-sensitive: exact match only.
             text = m.group(0)
+            if m.start() > 0 and m.string[m.start() - 1] == ".":
+                return text  # qualified reference: leave unchanged
             open_, inner, close = text[0], text[1:-1], text[-1]
             if inner != old_name:
                 return text

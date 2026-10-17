@@ -475,6 +475,33 @@ def test_rename_exact_match_uses_new_name_as_given():
     )
 
 
+def test_rename_literal_containing_jinja_stays_one_literal():
+    sql = "where d >= '{{ var(\"s\") }}' and order_date > 1 and s = 'x'"
+    assert _rename_column_in_sql(sql, "order_date", "recorded_date") == (
+        "where d >= '{{ var(\"s\") }}' and recorded_date > 1 and s = 'x'"
+    )
+
+
+def test_rename_comment_containing_jinja_stays_a_comment():
+    sql = "select 1 -- {{ x }} order_date\nfrom t"
+    assert _rename_column_in_sql(sql, "order_date", "recorded_date") == sql
+
+
+def test_rename_inside_array_and_list_brackets():
+    sql = "select ARRAY[order_date, x], arr[order_date + 1], [order_date, y] from t"
+    assert _rename_column_in_sql(sql, "order_date", "recorded_date") == (
+        "select ARRAY[recorded_date, x], arr[recorded_date + 1], [recorded_date, y] from t"
+    )
+
+
+@pytest.mark.parametrize(
+    "ref", ['o."order_date"', "o.[order_date]", '"o".order_date', "[o].order_date", "o.`order_date`"]
+)
+def test_rename_qualified_quoted_forms_unchanged(ref):
+    sql = f"select {ref} from orders o"
+    assert _rename_column_in_sql(sql, "order_date", "recorded_date") == sql
+
+
 @pytest.mark.parametrize("bad", ["a b", "1abc", "a-b", "a;drop", "", "a`b", 'a"b'])
 def test_rename_rejects_invalid_new_identifier(bad):
     with pytest.raises(ValueError):
