@@ -419,6 +419,68 @@ def test_rename_preserves_alias():
     assert "recorded_date as recorded_date" in result
 
 
+# ── Literals, comments, quoting, case ─────────────────────────────────────────
+
+def test_rename_skips_string_literals():
+    sql = "select order_date, 'order_date' as label, 'it''s order_date' from t"
+    assert _rename_column_in_sql(sql, "order_date", "recorded_date") == (
+        "select recorded_date, 'order_date' as label, 'it''s order_date' from t"
+    )
+
+
+def test_rename_skips_sql_comments():
+    sql = "select order_date -- order_date is the key\n/* old order_date\nnote */ from t"
+    assert _rename_column_in_sql(sql, "order_date", "recorded_date") == (
+        "select recorded_date -- order_date is the key\n/* old order_date\nnote */ from t"
+    )
+
+
+def test_rename_apostrophe_in_comment_does_not_open_a_string():
+    sql = "-- don't touch\nselect order_date from t"
+    assert _rename_column_in_sql(sql, "order_date", "recorded_date") == (
+        "-- don't touch\nselect recorded_date from t"
+    )
+
+
+def test_rename_quoted_identifier_containing_comment_marker():
+    sql = 'select "a--b", "order_date" from t'
+    assert _rename_column_in_sql(sql, "order_date", "recorded_date") == (
+        'select "a--b", "recorded_date" from t'
+    )
+
+
+def test_rename_bracket_quoted():
+    sql = "select [order_date], [other order_date] from t"
+    assert _rename_column_in_sql(sql, "order_date", "recorded_date") == (
+        "select [recorded_date], [other order_date] from t"
+    )
+
+
+def test_rename_quoted_is_case_sensitive():
+    sql = 'select "ORDER_DATE", `Order_Date`, [ORDER_DATE] from t'
+    assert _rename_column_in_sql(sql, "order_date", "recorded_date") == sql
+
+
+def test_rename_bare_keeps_case_style():
+    sql = "select ORDER_DATE, order_date, Order_Date from t"
+    assert _rename_column_in_sql(sql, "order_date", "recorded_date") == (
+        "select RECORDED_DATE, recorded_date, recorded_date from t"
+    )
+
+
+def test_rename_exact_match_uses_new_name_as_given():
+    sql = "select orderDate from t"
+    assert _rename_column_in_sql(sql, "orderDate", "recordedDate") == (
+        "select recordedDate from t"
+    )
+
+
+@pytest.mark.parametrize("bad", ["a b", "1abc", "a-b", "a;drop", "", "a`b", 'a"b'])
+def test_rename_rejects_invalid_new_identifier(bad):
+    with pytest.raises(ValueError):
+        _rename_column_in_sql("select order_date from t", "order_date", bad)
+
+
 # ── Jinja handling ────────────────────────────────────────────────────────────
 
 def test_rename_leaves_ref_and_source_text_untouched():
