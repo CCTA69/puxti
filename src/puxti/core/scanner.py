@@ -74,8 +74,7 @@ Always respond with valid JSON:
 Rules:
 - Be specific to this model, not generic
 - Focus on business meaning, not implementation detail
-- If the model's purpose is unclear from the SQL, say so honestly
-- Never exceed 3 sentences"""
+- If the model's purpose is unclear from the SQL, say so honestly"""
 
 _EDGES_SYSTEM_PROMPT = """You are Puxti's semantic scanner.
 

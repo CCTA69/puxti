@@ -7,9 +7,8 @@ non-trivial changes.
 
 Puxti is a Python CLI that builds a knowledge graph from a dbt project,
 detects schema and semantic changes, and generates downstream updates as
-reviewable GitHub PRs. The CLI ships a small set of commands (`scan`,
-`capture`, `redefine`, `link`, `correct`, `describe`, `purge`) plus
-operational verbs (`config`, `health`).
+reviewable GitHub PRs. Commands are registered in `src/puxti/cli/__init__.py`
+(one module per command in `src/puxti/cli/`).
 
 ## Repo layout
 
@@ -69,8 +68,8 @@ file, so no external services are required.
   branch. Generate PRs.
 - **Connectors stay modular.** Don't couple connector logic to core
   propagation logic. Each connector implements `base.Connector`.
-- **One graph backend.** Currently SQLite port;
-  don't introduce additional backends in the meantime.
+- **Two graph backends.** SQLite is the default; Postgres is opt-in via
+  `DATABASE_URL` (`puxti[postgres]`). Don't add others.
 - **No new dependencies without justification.** The package's install
   weight matters for OSS adoption. Discuss new deps in an issue first.
 
