@@ -140,7 +140,7 @@ class SemanticScanner:
         response = await self._backend.complete(
             system=_DEFINITION_SYSTEM_PROMPT,
             user_message=user_message,
-            max_tokens=256,
+            max_tokens=2048,
         )
         raw = strip_markdown_fences(response.text)
         return json.loads(raw)["definition"]

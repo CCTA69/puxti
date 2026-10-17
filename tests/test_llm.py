@@ -25,6 +25,7 @@ from puxti.settings import settings
 
 def _sdk_response(text: str, stop_reason: str = "end_turn") -> MagicMock:
     block = MagicMock()
+    block.type = "text"
     block.text = text
     response = MagicMock()
     response.content = [block]
@@ -55,6 +56,19 @@ async def test_complete_extracts_text_and_is_not_truncated():
     assert kwargs["max_tokens"] == 256
     assert kwargs["system"] == "sys"
     assert kwargs["messages"] == [{"role": "user", "content": "msg"}]
+
+
+async def test_complete_skips_leading_thinking_block():
+    response = _sdk_response('{"a": 1}')
+    thinking = MagicMock()
+    thinking.type = "thinking"
+    response.content = [thinking, *response.content]
+    client = _make_client(create=AsyncMock(return_value=response))
+    backend = AnthropicBackend(client=client)
+
+    result = await backend.complete(system="sys", user_message="msg", max_tokens=256)
+
+    assert result.text == '{"a": 1}'
 
 
 async def test_complete_flags_truncation_on_max_tokens_stop():
