@@ -286,11 +286,15 @@ async def _run_capture(
             for diff in result.diffs:
                 diff.file_path = f"{prefix}/{diff.file_path}"
 
-        total_files = sum(len(r.diffs) for r in results)
-        console.print(
-            f"[green]✓[/green] Generated {total_files} file diff(s) "
-            f"across {len(results)} connector(s)."
-        )
+        # A result with no diffs is a manual-review outcome (unverified models
+        # only): list it below, but never branch or open a PR for it.
+        actionable = [r for r in results if r.diffs]
+        if actionable:
+            total_files = sum(len(r.diffs) for r in actionable)
+            console.print(
+                f"[green]✓[/green] Generated {total_files} file diff(s) "
+                f"across {len(actionable)} connector(s)."
+            )
 
         all_unverified = [eid for r in results for eid in r.unverified_entity_ids]
         if all_unverified:
@@ -306,12 +310,19 @@ async def _run_capture(
                 f"  Review manually:\n{unverified_list}"
             )
 
+        if not actionable:
+            console.print(
+                "[yellow]No PR opened.[/yellow] No diffs were generated; every affected "
+                "model needs manual review (listed above)."
+            )
+            return
+
         # Step 3 — open PRs (one per connector, each to its configured repo)
         # Track opened PRs so each can reference the others as companion PRs.
         opened: list[tuple[str, str, str, GitHubConnector]] = []  # (connector, repo, pr_url, gh)
 
         with console.status("[bold]Opening GitHub PR...[/bold]"):
-            for result in results:
+            for result in actionable:
                 # Each connector PRs to its own configured repo; anything
                 # without one falls back to the dbt repo from --repo/.puxti.yml.
                 result_cfg = ws_for_propagation.get(result.connector)

@@ -211,6 +211,150 @@ def test_capture_no_diffs_exits_cleanly():
     assert "no diffs" in result.output.lower()
 
 
+def _run_capture_with_results(results, extra_args=(), input_="y\n"):
+    """Run `puxti capture` with a mocked engine returning `results`.
+
+    Returns (cli_result, github_connector_class_mock, engine_class_mock).
+    """
+    from puxti.models import ChangeType, SemanticChangeEvent
+
+    semantic_event = SemanticChangeEvent(
+        change_event_id="evt-059",
+        entity_id="model.jaffle_shop.orders.order_date",
+        change_type=ChangeType.STRUCTURAL,
+        semantic_context="order_date renamed to recorded_date.",
+        affected_entity_ids=["model.jaffle_shop.orders"],
+        reasoning="Column rename propagates to all referencing models.",
+        change={"before": {"name": "order_date"}, "after": {"name": "recorded_date"}},
+    )
+
+    mock_graph = MagicMock()
+    mock_graph.connect = AsyncMock()
+    mock_graph.close = AsyncMock()
+    mock_graph.get_latest_definition = AsyncMock(return_value=None)
+    mock_graph.get_semantic_dependents = AsyncMock(return_value=[])
+    mock_graph.get_structural_dependents = AsyncMock(return_value=[])
+    mock_graph.get_structural_ancestors = AsyncMock(return_value=[])
+    mock_graph.get_all_entity_ids = AsyncMock(return_value=[])
+    mock_graph.get_entity_by_id = AsyncMock(return_value=MagicMock())
+    mock_graph.upsert_definition = AsyncMock()
+    mock_graph.upsert_semantic_edge = AsyncMock()
+    mock_graph.save_change_event = AsyncMock()
+
+    mock_capture = MagicMock()
+    mock_capture.capture = AsyncMock(return_value=(semantic_event, AsyncMock()))
+    mock_capture.estimate_cost = AsyncMock(return_value={
+        "input_tokens": 450,
+        "tokens_exact": True,
+        "estimated_output_tokens": 614,
+        "estimated_cost_usd": 0.0108,
+    })
+
+    engine_cls = MagicMock()
+    engine_cls.return_value.propagate = AsyncMock(return_value=results)
+
+    mock_gh = MagicMock()
+    mock_gh.health_check = AsyncMock(return_value=True)
+    mock_gh.open_pr = AsyncMock(
+        side_effect=lambda result, *a, **kw: result.model_copy(
+            update={"pr_url": f"https://github.com/acme/data/pull/{result.connector}"}
+        )
+    )
+    mock_gh.add_companion_note = AsyncMock()
+    gh_cls = MagicMock(return_value=mock_gh)
+
+    mock_dbt = MagicMock()
+    mock_dbt.get_project_name = MagicMock(return_value="jaffle_shop")
+
+    with (
+        patch("puxti.cli.capture.settings") as mock_settings,
+        patch("puxti.cli.capture.KnowledgeGraph", return_value=mock_graph),
+        patch("puxti.cli.capture.SemanticCapture", return_value=mock_capture),
+        patch("puxti.cli.capture.PropagationEngine", engine_cls),
+        patch("puxti.cli.capture.GitHubConnector", gh_cls),
+        patch("puxti.cli.capture.DbtConnector", return_value=mock_dbt),
+    ):
+        mock_settings.dbt_project_dir = "/some/dbt"
+        mock_settings.github_token = "ghp_test"
+
+        cli_result = runner.invoke(app, [
+            "capture",
+            "--entity", "model.jaffle_shop.orders.order_date",
+            "--before", "order_date",
+            "--after", "recorded_date",
+            "--description", "test",
+            "--repo", "acme/data",
+            *extra_args,
+        ], input=input_)
+
+    return cli_result, gh_cls, mock_gh, engine_cls
+
+
+def _prop_result(connector, *, with_diff, unverified=()):
+    from puxti.models import FileDiff, PropagationResult
+
+    diffs = [
+        FileDiff(
+            file_path="models/orders.sql",
+            before="select order_date from stg",
+            after="select recorded_date from stg",
+            connector=connector,
+            description="Renamed order_date",
+        )
+    ] if with_diff else []
+    return PropagationResult(
+        change_event_id="evt-059",
+        connector=connector,
+        target_entity_id="model.jaffle_shop.orders.order_date",
+        diffs=diffs,
+        unverified_entity_ids=list(unverified),
+    )
+
+
+def test_capture_all_unverified_opens_no_pr():
+    """Only unverified models: list them, create no branch and no PR (#59)."""
+    results = [_prop_result("dbt", with_diff=False, unverified=["model.jaffle_shop.orders"])]
+
+    cli_result, gh_cls, mock_gh, _ = _run_capture_with_results(results)
+
+    assert cli_result.exit_code == 0, cli_result.output
+    assert "model.jaffle_shop.orders" in cli_result.output
+    assert "no pr opened" in cli_result.output.lower()
+    assert "manual review" in cli_result.output.lower()
+    assert gh_cls.call_count == 1          # the up-front health check only
+    mock_gh.open_pr.assert_not_called()
+
+
+def test_capture_mixed_results_opens_pr_only_for_connectors_with_diffs():
+    results = [
+        _prop_result("dbt", with_diff=True),
+        _prop_result("airflow", with_diff=False, unverified=["dag.nightly_orders"]),
+    ]
+
+    cli_result, gh_cls, mock_gh, _ = _run_capture_with_results(results)
+
+    assert cli_result.exit_code == 0, cli_result.output
+    assert mock_gh.open_pr.call_count == 1
+    opened = mock_gh.open_pr.call_args.args[0]
+    assert opened.connector == "dbt"
+    assert gh_cls.call_count == 2          # health check + the one PR connector
+    assert "dag.nightly_orders" in cli_result.output   # still listed for manual review
+    mock_gh.add_companion_note.assert_not_called()
+
+
+def test_capture_dry_run_with_unverified_results_opens_nothing():
+    """--dry-run stops at the cost estimate, before propagation or any PR."""
+    results = [_prop_result("dbt", with_diff=False, unverified=["model.jaffle_shop.orders"])]
+
+    cli_result, gh_cls, mock_gh, engine_cls = _run_capture_with_results(
+        results, extra_args=("--dry-run",)
+    )
+
+    assert cli_result.exit_code == 0, cli_result.output
+    engine_cls.return_value.propagate.assert_not_called()
+    mock_gh.open_pr.assert_not_called()
+
+
 def test_capture_warns_when_entity_not_in_graph():
     """When the entity ID isn't in the graph, capture should warn but continue."""
     from puxti.models import ChangeType, PropagationResult, SemanticChangeEvent
