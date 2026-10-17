@@ -589,7 +589,8 @@ def test_rename_inside_array_and_list_brackets():
 
 
 @pytest.mark.parametrize(
-    "ref", ['o."order_date"', "o.[order_date]", '"o".order_date', "[o].order_date", "o.`order_date`"]
+    "ref",
+    ['o."order_date"', "o.[order_date]", '"o".order_date', "[o].order_date", "o.`order_date`"],
 )
 def test_rename_qualified_quoted_forms_unchanged(ref):
     sql = f"select {ref} from orders o"
