@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`puxti capture` no longer opens an empty PR when every affected model is unverified.** A connector that returned no diffs but a non-empty unverified list still reached the PR step, which created a branch with no commits. Such results are now treated as a manual-review outcome: the unverified models are listed, no branch or PR is created, and the command exits 0. When only some connectors have diffs, PRs are opened for those connectors alone. (#59)
+
 ## [0.15.0] — 2026-10-11
 
 ### Added
