@@ -15,13 +15,16 @@ _JINJA_SPAN = re.compile(
 )
 
 
+_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_$]*")
+
+
 def rename_column_in_sql(sql: str, old_name: str, new_name: str) -> str:
     """Replace references to old_name with new_name in a SQL string.
 
     Handles common patterns:
     - bare column references:       old_name → new_name
     - aliased selections:           old_name as alias → new_name as alias
-    - quoted identifiers:           `old_name`, "old_name" → `new_name`, "new_name"
+    - quoted identifiers:           `old_name`, "old_name", [old_name] → same quoting, new_name
     - qualified refs (alias.old_name): left completely unchanged
 
     Qualified references are deliberately not touched: at the SQL text level
@@ -33,14 +36,28 @@ def rename_column_in_sql(sql: str, old_name: str, new_name: str) -> str:
     Jinja spans ({{ }}, {% %}, {# #}) are never modified. Callers that cannot
     accept a partial rename should check mentions_in_jinja first.
 
+    String literals and SQL comments (-- and /* */) are never modified, and
+    quoted identifiers (`x`, "x", [x]) are renamed only on an exact match.
+    Bare references match case-insensitively and keep their case style.
+
     Uses word-boundary matching to avoid partial replacements
     (e.g. 'recorded_date' should not match 'date').
+
+    Raises ValueError if new_name is not a plain SQL identifier.
     """
-    # re.split with a capture group alternates plain SQL (even indexes) and
-    # Jinja spans (odd indexes); only the plain segments are rewritten.
-    parts = _JINJA_SPAN.split(sql)
-    parts[::2] = [_rename_in_plain_sql(p, old_name, new_name) for p in parts[::2]]
-    return "".join(parts)
+    if not _IDENTIFIER.fullmatch(new_name):
+        raise ValueError(f"new column name is not a valid SQL identifier: {new_name!r}")
+    spans: list[str] = []
+
+    def stash(m: re.Match) -> str:
+        spans.append(m.group(0))
+        return f"\x00{len(spans) - 1}\x00"
+
+    # Jinja spans become quote-free placeholders so a literal or comment that
+    # contains one ('{{ var("x") }}') stays a single token for the rename.
+    masked = _JINJA_SPAN.sub(stash, sql)
+    renamed = _rename_in_plain_sql(masked, old_name, new_name)
+    return re.sub(r"\x00(\d+)\x00", lambda m: spans[int(m.group(1))], renamed)
 
 
 def mentions_in_jinja(sql: str, name: str) -> bool:
@@ -54,24 +71,48 @@ def mentions_in_jinja(sql: str, name: str) -> bool:
 
 
 def _rename_in_plain_sql(sql: str, old_name: str, new_name: str) -> str:
-    # Backtick-quoted (BigQuery style) — direct rename
-    sql = re.sub(rf"`{re.escape(old_name)}`", f"`{new_name}`", sql)
-
-    # Double-quoted (standard SQL) — direct rename
-    sql = re.sub(rf'"{re.escape(old_name)}"', f'"{new_name}"', sql)
-
-    # Qualified references (alias.col, table.col) — leave completely unchanged.
+    # Qualified references (alias.col, table.col) are left completely unchanged.
     # We cannot determine from SQL text alone which table alias maps to the
     # source model being renamed, so touching qualified refs risks both wrong
     # renames (s.type where s is a different table) and broken SQL (AS alias
     # in WHERE clauses is invalid). Bare references are unambiguous within a
     # model that is already scoped to the affected entity set.
-
-    # Bare identifier: not preceded by a qualifier (word + dot)
-    # word-boundary on both sides, case-insensitive
-    return re.sub(
-        rf"(?<!\w\.)\b{re.escape(old_name)}\b",
-        new_name,
-        sql,
-        flags=re.IGNORECASE,
+    old = re.escape(old_name)
+    pattern = re.compile(
+        rf"""(?P<skip>'(?:''|[^'])*'|--[^\n]*|/\*.*?\*/)"""
+        rf"""|(?P<quoted>`[^`]*`|"(?:""|[^"])*"|(?<![\w\])])\[[^\]\[,()'"+\-*/<>=!|&%.:]*\])"""
+        rf"""|(?<![\w"`\]]\.)\b(?P<bare>{old})\b""",
+        re.DOTALL | re.IGNORECASE,
     )
+
+    def replace(m: re.Match) -> str:
+        if m.group("skip") is not None:
+            return m.group(0)
+        if m.group("quoted") is not None:
+            # Quoted identifiers are case-sensitive: exact match only.
+            text = m.group(0)
+            if m.start() > 0 and m.string[m.start() - 1] == ".":
+                return text  # qualified reference: leave unchanged
+            open_, inner, close = text[0], text[1:-1], text[-1]
+            if inner != old_name:
+                return text
+            return f"{open_}{new_name}{close}"
+        return _match_case(m.group("bare"), old_name, new_name)
+
+    return pattern.sub(replace, sql)
+
+
+def _match_case(found: str, old_name: str, new_name: str) -> str:
+    """Write new_name in the case style the bare reference used.
+
+    Unquoted identifiers are case-insensitive, so ORDER_DATE and order_date
+    both refer to the column. An exact match gets new_name as given; an
+    all-upper or all-lower variant gets new_name in the same style.
+    """
+    if found == old_name:
+        return new_name
+    if found.isupper():
+        return new_name.upper()
+    if found.islower():
+        return new_name.lower()
+    return new_name
