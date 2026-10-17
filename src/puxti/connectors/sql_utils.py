@@ -30,8 +30,9 @@ def rename_column_in_sql(sql: str, old_name: str, new_name: str) -> str:
     Qualified references are deliberately not touched: at the SQL text level
     we cannot know which table alias maps to the source model, so renaming
     them risks both wrong renames (s.type where s is a different table) and
-    broken SQL. A source model whose only references are qualified is instead
-    reported as unverified so the PR flags it for manual review.
+    broken SQL. Callers must check has_qualified_reference first and report a
+    model that has any as unverified, so the PR flags it for manual review
+    instead of carrying a partial rename.
 
     Jinja spans ({{ }}, {% %}, {# #}) are never modified. Callers that cannot
     accept a partial rename should check mentions_in_jinja first.
@@ -68,6 +69,24 @@ def mentions_in_jinja(sql: str, name: str) -> bool:
     """
     pattern = re.compile(rf"\b{re.escape(name)}\b", re.IGNORECASE)
     return any(pattern.search(span) for span in _JINJA_SPAN.findall(sql))
+
+
+def has_qualified_reference(sql: str, name: str) -> bool:
+    """Return True if name is referenced as alias.name or alias."name" in plain SQL.
+
+    rename_column_in_sql never rewrites these, so a model that has one next to
+    bare references would be left half-renamed. Callers use this to report the
+    whole model as unverified instead of writing a partial rename. String
+    literals, comments and Jinja spans are ignored.
+    """
+    masked = _JINJA_SPAN.sub("\x00", sql)
+    old = re.escape(name)
+    pattern = re.compile(
+        rf"""(?P<skip>'(?:''|[^'])*'|--[^\n]*|/\*.*?\*/)"""
+        rf"""|(?P<qual>(?<=[\w"`\]])\s*\.\s*(?:\b{old}\b|`{old}`|"{old}"|\[{old}\]))""",
+        re.DOTALL | re.IGNORECASE,
+    )
+    return any(m.group("qual") is not None for m in pattern.finditer(masked))
 
 
 def _rename_in_plain_sql(sql: str, old_name: str, new_name: str) -> str:

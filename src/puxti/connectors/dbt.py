@@ -4,7 +4,11 @@ import re
 from pathlib import Path
 
 from puxti.connectors.base import BaseConnector
-from puxti.connectors.sql_utils import mentions_in_jinja, rename_column_in_sql
+from puxti.connectors.sql_utils import (
+    has_qualified_reference,
+    mentions_in_jinja,
+    rename_column_in_sql,
+)
 from puxti.models import (
     ChangeType,
     Edge,
@@ -274,6 +278,19 @@ class DbtConnector(BaseConnector):
                 _logger.warning(
                     "Skipping rename of `%s` in model `%s`: column is referenced "
                     "inside a Jinja expression; flagged as unverified",
+                    old_name,
+                    node["name"],
+                )
+                unverified.append(node_id)
+                continue
+
+            # Qualified references (alias.col) are never rewritten, so renaming
+            # the bare ones alone would leave broken SQL. Never write a partial
+            # rename: flag the whole model for manual review.
+            if has_qualified_reference(original_sql, old_name):
+                _logger.warning(
+                    "Skipping rename of `%s` in model `%s`: column has qualified "
+                    "references that cannot be renamed safely; flagged as unverified",
                     old_name,
                     node["name"],
                 )
