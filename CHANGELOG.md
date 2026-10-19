@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.16.0] — 2026-10-19
+
+### Changed
+
+- **Default model is now `claude-sonnet-5-5`.** It replaces `claude-sonnet-4-6` when `LLM_MODEL` is not set. Cost estimates use its pricing ($2 input, $10 output per million tokens). Responses that lead with a thinking block are read correctly, and the scanner's definition call allows 2048 output tokens so thinking cannot exhaust the limit. Set `LLM_MODEL=claude-sonnet-4-6` to keep the previous model. (#64)
+
 ### Fixed
 
 - **Column rename skips string literals and SQL comments, handles `[bracket]` quoting and case.** The SQL text rename no longer rewrites matches inside `'...'` literals or `--` and `/* */` comments. `[old_name]` is renamed like backtick and double-quoted identifiers, all of which match exactly (case-sensitive). Bare references still match case-insensitively but keep their case style (`ORDER_DATE` becomes `RECORDED_DATE`). A new name that is not a plain SQL identifier raises `ValueError` instead of being written into the file. (#46)
