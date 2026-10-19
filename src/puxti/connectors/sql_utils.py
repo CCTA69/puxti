@@ -55,8 +55,8 @@ def rename_column_fully(sql: str, old_name: str, new_name: str) -> str | None:
     The result is None when the SQL has a qualified column reference to
     old_name (alias.old_name), which the rename never rewrites. The caller
     should report the whole model as unverified instead of writing it.
-    Relation names (from raw.old_name) and path segments (a.old_name.b) are
-    not column references and do not count.
+    Relation names after FROM or JOIN (from raw.old_name) are not column
+    references and do not count.
     """
     renamed, qualified = _rename(sql, old_name, new_name)
     return None if qualified else renamed
@@ -92,6 +92,8 @@ def mentions_in_jinja(sql: str, name: str) -> bool:
 # Characters of a qualifier chain such as proj.ds.tbl, "s"."t", [s].[t] or a
 # Jinja placeholder, walked back over to find the keyword before a relation.
 _QUALIFIER_CHARS = re.compile(r"""[\w$."`\[\]\x00]*$""")
+# Whitespace and comments, which SQL allows between a qualifier's dot and name.
+_GAP = r"(?:\s|--[^\n]*|/\*.*?\*/)*"
 _RELATION_KEYWORD = re.compile(
     r"\b(?:from|join|into|update|table|view)\s+$", re.IGNORECASE
 )
@@ -111,7 +113,7 @@ def _rename_in_plain_sql(sql: str, old_name: str, new_name: str) -> tuple[str, b
     pattern = re.compile(
         rf"""(?P<skip>'(?:''|[^'])*'|--[^\n]*|/\*.*?\*/)"""
         rf"""|(?P<quoted>`[^`]*`|"(?:""|[^"])*"|(?<![\w\])])\[[^\]\[,()'"+\-*/<>=!|&%.:]*\])"""
-        rf"""|\.\s*\b(?P<qualified>{old})\b"""
+        rf"""|\.{_GAP}\b(?P<qualified>{old})\b"""
         rf"""|\b(?P<bare>{old})\b""",
         re.DOTALL | re.IGNORECASE,
     )
@@ -122,7 +124,7 @@ def _rename_in_plain_sql(sql: str, old_name: str, new_name: str) -> tuple[str, b
         if m.group("skip") is not None:
             return m.group(0)
         if m.group("qualified") is not None:
-            if not _is_relation_segment(m.string, m.start(), m.end()):
+            if not _is_relation_segment(m.string, m.start()):
                 qualified = True
             return m.group(0)
         if m.group("quoted") is not None:
@@ -131,9 +133,9 @@ def _rename_in_plain_sql(sql: str, old_name: str, new_name: str) -> tuple[str, b
             open_, inner, close = text[0], text[1:-1], text[-1]
             if inner != old_name:
                 return text
-            before = m.string[: m.start()].rstrip()
-            if before.endswith("."):
-                if not _is_relation_segment(m.string, len(before) - 1, m.end()):
+            dot = _dot_before(m.string, m.start())
+            if dot is not None:
+                if not _is_relation_segment(m.string, dot):
                     qualified = True
                 return text
             return f"{open_}{new_name}{close}"
@@ -142,14 +144,27 @@ def _rename_in_plain_sql(sql: str, old_name: str, new_name: str) -> tuple[str, b
     return pattern.sub(replace, sql), qualified
 
 
-def _is_relation_segment(sql: str, dot: int, end: int) -> bool:
+def _dot_before(sql: str, pos: int) -> int | None:
+    """Return the index of a dot before sql[pos], skipping whitespace and comments."""
+    head = sql[:pos]
+    while True:
+        stripped = head.rstrip()
+        if stripped.endswith("*/") and "/*" in stripped:
+            head = stripped[: stripped.rindex("/*")]
+        elif "--" in stripped[stripped.rfind("\n") + 1 :] and len(stripped) < len(head):
+            # A line comment ends at the newline we just stripped.
+            head = stripped[: stripped.rindex("--")]
+        else:
+            return len(stripped) - 1 if stripped.endswith(".") else None
+
+
+def _is_relation_segment(sql: str, dot: int) -> bool:
     """Return True if the name after sql[dot] is part of a relation, not a column.
 
-    It is when another segment follows (a.name.b) or when the dotted chain
-    comes right after FROM, JOIN, INTO, UPDATE, TABLE or VIEW (from raw.name).
+    It is when the dotted chain comes right after FROM, JOIN, INTO, UPDATE,
+    TABLE or VIEW (from raw.name, join proj.name.tbl). Elsewhere a following
+    segment does not make it a relation: t.name.field is struct field access.
     """
-    if sql[end:].lstrip().startswith("."):
-        return True
     head = sql[:dot]
     chain = _QUALIFIER_CHARS.search(head)
     return bool(_RELATION_KEYWORD.search(head[: chain.start()]))

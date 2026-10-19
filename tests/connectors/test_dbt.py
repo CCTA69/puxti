@@ -392,6 +392,12 @@ async def test_column_rename_mixed_refs_goes_to_unverified(tmp_path, is_source):
         "select order_date, o.ORDER_DATE from orders o",
         "select order_date, (o).order_date from orders o",
         "select order_date, {{ ref('orders') }}.order_date from {{ ref('orders') }}",
+        "select order_date, o./* note */order_date from orders o",
+        "select order_date, o.-- note\norder_date from orders o",
+        'select order_date, o./* note */"order_date" from orders o',
+        'select order_date, o. -- note\n "order_date" from orders o',
+        # BigQuery struct field access: order_date is the column.
+        "select order_date, t.order_date.day from t",
     ],
 )
 def test_rename_fully_refuses_qualified_reference(sql):
@@ -420,6 +426,8 @@ def test_rename_fully_refuses_qualified_reference(sql):
          "select recorded_date from raw.order_date"),
         ("select order_date from proj.order_date.tbl",
          "select recorded_date from proj.order_date.tbl"),
+        ("select order_date from a join proj.order_date.tbl b on true",
+         "select recorded_date from a join proj.order_date.tbl b on true"),
         ('select order_date from "raw"."order_date"',
          'select recorded_date from "raw"."order_date"'),
     ],
