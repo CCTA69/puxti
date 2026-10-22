@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
@@ -254,6 +255,22 @@ async def test_upsert_and_get_latest_definition(kg: KnowledgeGraph) -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_latest_definition_preserves_created_at(kg: KnowledgeGraph) -> None:
+    # The stored timestamp must round-trip; a missing read falls back to "now",
+    # which makes every definition look freshly authored in provenance output.
+    e = await kg.upsert_entity_by_name(_entity("orders"))
+    written_at = datetime(2025, 3, 14, 9, 30, tzinfo=UTC)
+    await kg.upsert_definition(
+        Definition(
+            entity_id=e.id, description="first", version=1, created_by="test", created_at=written_at
+        )
+    )
+    latest = await kg.get_latest_definition(e.id)
+    assert latest is not None
+    assert latest.created_at == written_at
+
+
+@pytest.mark.asyncio
 async def test_get_latest_definition_missing_returns_none(kg: KnowledgeGraph) -> None:
     assert await kg.get_latest_definition("no-entity") is None
 
@@ -331,12 +348,17 @@ async def test_save_change_event(kg: KnowledgeGraph) -> None:
 async def test_get_all_entities_with_definitions(kg: KnowledgeGraph) -> None:
     a = await kg.upsert_entity_by_name(_entity("a"))
     b = await kg.upsert_entity_by_name(_entity("b"))
+    written_at = datetime(2025, 3, 14, 9, 30, tzinfo=UTC)
     await kg.upsert_definition(
-        Definition(entity_id=a.id, description="defined", version=1, created_by="test")
+        Definition(
+            entity_id=a.id, description="defined", version=1, created_by="test",
+            created_at=written_at,
+        )
     )
     pairs = await kg.get_all_entities_with_definitions()
     d = {e.id: defn for e, defn in pairs}
     assert d[a.id] is not None
+    assert d[a.id].created_at == written_at
     assert d[b.id] is None
 
 
