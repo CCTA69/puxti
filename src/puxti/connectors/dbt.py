@@ -25,7 +25,8 @@ _logger = logging.getLogger(__name__)
 class DbtConnector(BaseConnector):
     """Connector for dbt Core and dbt Cloud projects.
 
-    Reads the dbt manifest.json to extract models, columns, and lineage.
+    Reads the dbt manifest.json to extract models, columns, sources, MetricFlow
+    metrics, and lineage.
     Generates file diffs for structural changes (column renames, model updates).
 
     Config keys:
@@ -71,7 +72,7 @@ class DbtConnector(BaseConnector):
             return False
 
     async def extract_entities(self) -> list[Entity]:
-        """Extract dbt models and their columns as entities."""
+        """Extract dbt models, their columns, sources, and metrics as entities."""
         manifest = self._load_manifest()
         project_name = manifest.get("metadata", {}).get("project_name", "")
         entities: list[Entity] = []
@@ -131,10 +132,34 @@ class DbtConnector(BaseConnector):
             )
             entities.append(source_entity)
 
+        # MetricFlow metrics. dbt writes them to manifest.json next to
+        # semantic_manifest.json, keyed metric.<project>.<name> — the same ID
+        # `puxti define` gives a proposed metric, so the two reconcile on upsert.
+        for metric_id, metric in manifest.get("metrics", {}).items():
+            entities.append(
+                Entity(
+                    id=metric_id,
+                    name=metric["name"],
+                    type=EntityType.METRIC,
+                    source_connector="dbt",
+                    project=project_name,
+                    metadata={
+                        "description": metric.get("description", ""),
+                        "label": metric.get("label") or "",
+                        "metric_type": metric.get("type", ""),
+                    },
+                )
+            )
+
         return entities
 
     async def extract_lineage(self) -> list[Edge]:
-        """Extract model-to-model and model-to-source dependencies."""
+        """Extract model-to-model, model-to-source, and metric dependencies.
+
+        A simple or cumulative metric depends on a semantic model, which is not
+        an entity; its edge goes to the model behind that semantic model. Derived
+        and ratio metrics depend on their input metrics.
+        """
         manifest = self._load_manifest()
         edges: list[Edge] = []
 
@@ -152,7 +177,45 @@ class DbtConnector(BaseConnector):
                     )
                 )
 
+        semantic_models = manifest.get("semantic_models", {})
+        for metric_id, metric in manifest.get("metrics", {}).items():
+            targets: list[str] = []
+            for dep_id in metric.get("depends_on", {}).get("nodes", []):
+                if not dep_id.startswith("semantic_model."):
+                    targets.append(dep_id)
+                    continue
+                models = semantic_models.get(dep_id, {}).get("depends_on", {}).get("nodes", [])
+                if not models:
+                    _logger.warning(
+                        "Metric %s depends on %s, which resolves to no model; "
+                        "no lineage edge written for it.", metric_id, dep_id,
+                    )
+                targets.extend(models)
+            for target_id in dict.fromkeys(targets):
+                edges.append(
+                    Edge(
+                        from_entity_id=metric_id,
+                        to_entity_id=target_id,
+                        type=EdgeType.DEPENDS_ON,
+                        connector="dbt",
+                    )
+                )
+
         return edges
+
+    def get_seed_definitions(self) -> dict[str, str]:
+        """Return {metric_id: definition} for every MetricFlow metric, built from
+        its YAML description and type params — no LLM, since the metric spec
+        already states what it computes."""
+        manifest = self._load_manifest()
+        measures: dict[str, tuple[str, dict]] = {}
+        for semantic_model in manifest.get("semantic_models", {}).values():
+            for measure in semantic_model.get("measures", []):
+                measures[measure["name"]] = (semantic_model.get("name", ""), measure)
+        return {
+            metric_id: _metric_definition(metric, measures)
+            for metric_id, metric in manifest.get("metrics", {}).items()
+        }
 
     def get_project_name(self) -> str:
         """Return the dbt project name from the manifest metadata."""
@@ -349,6 +412,105 @@ class DbtConnector(BaseConnector):
 # Shared with other SQL-patching connectors; kept under the old private name
 # because existing callers and tests import it from here.
 _rename_column_in_sql = rename_column_in_sql
+
+
+def _window_text(window: object) -> str:
+    """'7 days' from either a {count, granularity} dict or a plain string."""
+    if isinstance(window, dict):
+        return f"{window.get('count', '')} {window.get('granularity', '')}".strip()
+    return str(window)
+
+
+def _where_text(filter_: dict | None) -> str:
+    """The where clauses of a MetricFlow filter, joined with AND, or ''."""
+    clauses = [
+        f["where_sql_template"].strip()
+        for f in (filter_ or {}).get("where_filters", [])
+        if f.get("where_sql_template")
+    ]
+    return " AND ".join(clauses)
+
+
+def _measure_text(params: dict, measures: dict[str, tuple[str, dict]]) -> str | None:
+    """What a simple or cumulative metric aggregates, or None when the manifest
+    does not say. Newer specs put agg/expr on the metric instead of a measure."""
+    ref = params.get("measure") or {}
+    name = ref.get("name", "")
+    if name:
+        if name in measures:
+            semantic_model, measure = measures[name]
+            text = (
+                f"{measure.get('agg') or 'aggregate'} of {measure.get('expr') or name} "
+                f"(measure {name} in semantic model {semantic_model})"
+            )
+        else:
+            text = f"measure {name}"
+        where = _where_text(ref.get("filter"))
+        return f"{text}, where {where}" if where else text
+    if params.get("agg"):
+        expr = params.get("expr")
+        return f"{params['agg']} of {expr}" if expr else str(params["agg"])
+    return None
+
+
+def _input_text(ref: dict | None) -> str:
+    ref = ref or {}
+    text = ref.get("name", "")
+    where = _where_text(ref.get("filter"))
+    if where:
+        text += f" (where {where})"
+    if ref.get("offset_window"):
+        text += f" offset by {_window_text(ref['offset_window'])}"
+    if ref.get("offset_to_grain"):
+        text += f" offset to start of {ref['offset_to_grain']}"
+    if ref.get("alias"):
+        text += f" (as {ref['alias']})"
+    return text
+
+
+def _metric_definition(metric: dict, measures: dict[str, tuple[str, dict]]) -> str:
+    """Plain-text definition of a MetricFlow metric: its description, then what
+    it computes. The description comes first so it is the definition's first
+    line wherever only one line is shown."""
+    params = metric.get("type_params") or {}
+    metric_type = metric.get("type", "")
+
+    aggregated = _measure_text(params, measures)
+    if metric_type == "simple":
+        formula = f"Simple metric: {aggregated}" if aggregated else "Simple metric."
+    elif metric_type == "cumulative":
+        cumulative = params.get("cumulative_type_params") or {}
+        window = cumulative.get("window") or params.get("window")
+        grain = cumulative.get("grain_to_date") or params.get("grain_to_date")
+        if window:
+            span = f"over a {_window_text(window)} window"
+        elif grain:
+            span = f"{grain}-to-date"
+        else:
+            span = "over all time"
+        formula = (
+            f"Cumulative metric: {aggregated}, {span}" if aggregated
+            else f"Cumulative metric, {span}."
+        )
+    elif metric_type == "ratio":
+        formula = (
+            f"Ratio metric: {_input_text(params.get('numerator'))} / "
+            f"{_input_text(params.get('denominator'))}"
+        )
+    elif metric_type == "derived":
+        formula = f"Derived metric: {params.get('expr') or ''}".rstrip()
+        inputs = ", ".join(_input_text(i) for i in params.get("metrics") or [])
+        if inputs:
+            formula += f"\nInputs: {inputs}"
+    else:
+        formula = f"{metric_type.capitalize() or 'Unknown'} metric."
+
+    where = _where_text(metric.get("filter"))
+    if where:
+        formula += f"\nFilter: {where}"
+
+    description = (metric.get("description") or "").strip()
+    return f"{description}\n\n{formula}" if description else formula
 
 
 def _references_model(sql: str, model_name: str) -> bool:

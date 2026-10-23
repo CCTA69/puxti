@@ -1,6 +1,7 @@
 """`puxti define`: author a metric's meaning before the code that implements it."""
 
 import typer
+from rich.markup import escape
 
 from puxti.cli._app import app
 from puxti.cli._shared import _run, console, err_console
@@ -67,6 +68,18 @@ async def _run_define(name: str, description: str, project: str, derived_from: s
     kg = KnowledgeGraph()
     await kg.connect()
     try:
+        # The ID matches the one dbt gives a scanned metric. Upserting over a
+        # bound entity would demote it to proposed and hide its lineage.
+        existing_entity = await kg.get_entity_by_id(entity_id)
+        if existing_entity and existing_entity.status == EntityStatus.BOUND:
+            err_console.print(
+                f"[red]Error:[/red] '{escape(entity_id)}' already exists as a bound "
+                f"{existing_entity.type.value} from {escape(existing_entity.source_connector)}. "
+                "Change its meaning with `puxti redefine`, or fix a wrong definition "
+                "with `puxti correct`."
+            )
+            raise typer.Exit(1)
+
         if derived_from and not await kg.get_entity_by_id(derived_from):
             err_console.print(
                 f"[red]Error:[/red] --derived-from entity '{derived_from}' not found. "

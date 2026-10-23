@@ -328,6 +328,13 @@ async def test_purge_all(kg: KnowledgeGraph) -> None:
     assert await kg.get_all_entity_ids() == []
 
 
+@pytest.mark.asyncio
+async def test_has_entities(kg: KnowledgeGraph) -> None:
+    assert await kg.has_entities() is False
+    await kg.upsert_entity(_entity("orders"))
+    assert await kg.has_entities() is True
+
+
 # ── change events ─────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
@@ -552,6 +559,38 @@ async def test_get_proposed_and_reconcile_candidates(kg: KnowledgeGraph) -> None
     candidates = await kg.get_reconcile_candidates()
     assert model.id in {e.id for e in candidates}
     assert proposed.id not in {e.id for e in candidates}
+
+
+@pytest.mark.asyncio
+async def test_reconcile_candidates_include_bound_metrics(kg: KnowledgeGraph) -> None:
+    scanned = Entity(id="metric.test.nrr", name="nrr", type=EntityType.METRIC,
+                     source_connector="dbt", project="test")
+    await kg.upsert_entity(scanned)
+    candidates = await kg.get_reconcile_candidates()
+    assert scanned.id in {e.id for e in candidates}
+
+
+@pytest.mark.asyncio
+async def test_scanned_metric_reconciles_with_defined_metric_by_id(kg: KnowledgeGraph) -> None:
+    # `puxti define --project test` and a dbt metric share metric.test.<name>:
+    # the scan's upsert binds the proposed entity in place and keeps its definition.
+    defined = Entity(id="metric.test.nrr", name="nrr", type=EntityType.METRIC,
+                     source_connector="proposed", project="test",
+                     status=EntityStatus.PROPOSED)
+    await kg.upsert_entity(defined)
+    await kg.upsert_definition(Definition(
+        entity_id=defined.id, description="net revenue retention", version=1, created_by="user"))
+
+    await kg.upsert_entity(Entity(id="metric.test.nrr", name="nrr", type=EntityType.METRIC,
+                                  source_connector="dbt", project="test"))
+
+    entity = await kg.get_entity_by_id("metric.test.nrr")
+    assert entity.status == EntityStatus.BOUND
+    assert entity.source_connector == "dbt"
+    assert (await kg.get_all_entity_ids()).count("metric.test.nrr") == 1
+    assert await kg.get_proposed_entities() == []
+    latest = await kg.get_latest_definition("metric.test.nrr")
+    assert latest.created_by == "user"
 
 
 @pytest.mark.asyncio

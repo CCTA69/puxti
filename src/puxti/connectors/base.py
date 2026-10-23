@@ -71,6 +71,13 @@ class BaseConnector(ABC):
         """
         return {}
 
+    def get_seed_definitions(self) -> dict[str, str]:
+        """Map of entity ID → definition text the connector can state directly
+        from its source, with no LLM (e.g. dbt metrics, whose YAML already says
+        what they compute). Connectors with nothing to state return {}.
+        """
+        return {}
+
     def find_model_path(self, entity_id: str) -> str | None:
         """Repo-relative file path of an entity's source file, or None when
         this connector cannot locate one. Engines must treat None as

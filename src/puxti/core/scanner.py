@@ -13,7 +13,9 @@ import logging
 from collections.abc import Awaitable, Callable
 
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
+from rich.text import Text
 
 from puxti.connectors.base import BaseConnector
 from puxti.core.graph import GraphStore
@@ -417,6 +419,8 @@ class SemanticScanner:
         2. Infer starter definitions via LLM
         3. Confirm definitions (interactive: one by one; auto: all at once)
         4. Write confirmed definitions to graph
+        4b. Confirm and write definitions the connector states without an LLM
+            (dbt metrics), never overwriting one a user wrote
         5. Propose semantic edges → confirm → write to graph
 
         reference_index (see puxti.core.resolution) resolves cross-connector
@@ -493,6 +497,11 @@ class SemanticScanner:
 
         console.print(f"[green]✓[/green] Wrote {written} definitions to Knowledge Graph")
 
+        # 4b. Definitions the connector states directly (dbt metrics from YAML)
+        written += await self._write_seed_definitions(
+            connector.get_seed_definitions(), entities, graph, interactive, console
+        )
+
         # 5. Propose semantic edges
         defined_entities = [e for e in model_entities if e.id in definitions]
         edges_confirmed = 0
@@ -530,6 +539,97 @@ class SemanticScanner:
         )
 
     # ── Private helpers ────────────────────────────────────────────────────────
+
+    async def _write_seed_definitions(
+        self,
+        seeds: dict[str, str],
+        entities: list[Entity],
+        graph: GraphStore,
+        interactive: bool,
+        console: Console,
+    ) -> int:
+        """Write connector-stated definitions after confirmation: one prompt per
+        definition in interactive mode, one for all of them otherwise.
+
+        A seed is written when the entity has no definition yet, or when its
+        latest definition was written by scan and the text has changed. A
+        definition written any other way (`puxti define`, `redefine`, `correct`,
+        `capture`, a bind, or an edit at this prompt) is never overwritten; those
+        entities are listed instead. Returns the number of definitions written."""
+        if not seeds:
+            return 0
+
+        names = {e.id: e.name for e in entities}
+        to_write: list[tuple[str, str, Definition | None]] = []
+        kept: list[str] = []
+        for entity_id, text in seeds.items():
+            latest = await graph.get_latest_definition(entity_id)
+            if latest is not None and latest.description == text:
+                continue
+            if latest is not None and latest.created_by != "scan":
+                kept.append(f"{names.get(entity_id, entity_id)} (by {latest.created_by})")
+                continue
+            to_write.append((entity_id, text, latest))
+
+        if kept:
+            console.print(
+                f"[dim]Kept {len(kept)} metric definition(s) written outside scan that "
+                f"differ from the project YAML: {escape(', '.join(sorted(kept)))}. "
+                f"Compare with `puxti describe --entity <id>`.[/dim]"
+            )
+        if not to_write:
+            return 0
+
+        # entity_id → (text, created_by). An edited definition is the user's,
+        # so a later scan keeps it instead of reverting it to the YAML.
+        confirmed: dict[str, tuple[str, str]] = {}
+        if interactive:
+            total = len(to_write)
+            for i, (entity_id, text, _) in enumerate(to_write, 1):
+                console.print(Text(f"\n[{i}/{total}] {names.get(entity_id, entity_id)}",
+                                   style="bold"))
+                console.print(Text(text, style="dim"))
+                choice = console.input(
+                    "  [bold]Confirm?[/bold] ([green]y[/green]=yes, "
+                    "[yellow]e[/yellow]=edit, [red]s[/red]=skip) > "
+                ).strip().lower()
+                # Only an explicit "y" confirms — blank input skips, never accepts.
+                if choice == "y":
+                    confirmed[entity_id] = (text, "scan")
+                elif choice == "e":
+                    edited = console.input("  Enter definition: ").strip()
+                    if edited:
+                        confirmed[entity_id] = (edited, "user")
+        else:
+            table = Table(title="Metric definitions from the project YAML")
+            table.add_column("Metric", style="bold")
+            table.add_column("Definition")
+            for entity_id, text, _ in to_write:
+                # Manifest text is data: Text() keeps Rich from parsing it as markup.
+                table.add_row(Text(names.get(entity_id, entity_id)), Text(text))
+            console.print(table)
+
+            choice = console.input(
+                f"\n[bold]Write {len(to_write)} metric definition(s)?[/bold] "
+                "([green]y[/green]=yes, [red]n[/red]=skip) > "
+            ).strip().lower()
+            # Only an explicit "y" confirms — blank input skips, never accepts.
+            if choice == "y":
+                confirmed = {entity_id: (text, "scan") for entity_id, text, _ in to_write}
+
+        for entity_id, text, latest in to_write:
+            if entity_id not in confirmed:
+                continue
+            description, created_by = confirmed[entity_id]
+            await graph.upsert_definition(Definition(
+                entity_id=entity_id,
+                description=description,
+                version=(latest.version + 1) if latest else 1,
+                created_by=created_by,
+            ))
+        if confirmed:
+            console.print(f"[green]✓[/green] Wrote {len(confirmed)} metric definitions")
+        return len(confirmed)
 
     async def _interactive_definitions(
         self,

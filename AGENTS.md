@@ -19,7 +19,7 @@ reviewable GitHub PRs. Commands are registered in `src/puxti/cli/__init__.py`
   connectors; `capture.py` and `redefine.py` propagate changes; `corrector.py`
   fixes inferred definitions; `graph.py` is the high-level graph interface;
   `resolution.py` resolves cross-connector table references at scan time.
-- `src/puxti/connectors/` — integrations. `dbt.py` parses manifests and
+- `src/puxti/connectors/` — integrations. `dbt.py` parses manifests (models, sources, MetricFlow metrics) and
   generates SQL diffs; `github.py` opens PRs; `airflow.py` parses DAGs;
   `prisma.py` parses schema.prisma; `sql_views.py` parses CREATE VIEW files
   (sqlglot). Each connector implements the interface in `base.py`;

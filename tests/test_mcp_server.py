@@ -370,3 +370,40 @@ async def test_search_entities_flags_truncated_results():
     assert cut["truncated"] is True
     assert full["total_count"] == 4
     assert full["truncated"] is False
+
+
+# ── not-found message ─────────────────────────────────────────────────────────
+
+
+async def test_not_found_on_empty_graph_says_run_scan():
+    from pathlib import Path
+
+    from puxti.core.graph import KnowledgeGraph
+
+    graph = KnowledgeGraph(db_path=Path(":memory:"))
+    await graph.connect()
+    with patch("puxti.mcp_server._graph_connect", new=AsyncMock(return_value=graph)):
+        from puxti.mcp_server import describe_entity
+        result = json.loads(await describe_entity(entity_id="metric.jaffle_shop.aov"))
+    await graph.close()
+    assert "empty" in result["error"]
+    assert "puxti scan" in result["error"]
+
+
+async def test_not_found_on_populated_graph_points_at_search():
+    graph = await _search_graph()
+    with patch("puxti.mcp_server._graph_connect", new=AsyncMock(return_value=graph)):
+        from puxti.mcp_server import (
+            consumers,
+            definition_history,
+            describe_entity,
+            impact_of_change,
+        )
+        results = [
+            json.loads(await tool(entity_id="metric.average_order_value"))
+            for tool in (describe_entity, definition_history, impact_of_change, consumers)
+        ]
+    await graph.close()
+    for result in results:
+        assert "search_entities" in result["error"]
+        assert "puxti scan" not in result["error"]

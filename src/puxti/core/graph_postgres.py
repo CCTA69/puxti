@@ -196,6 +196,10 @@ class PostgresKnowledgeGraph:
         return [row["id"] for row in rows]
 
     @_serialized
+    async def has_entities(self) -> bool:
+        return await self._conn.fetchval("SELECT 1 FROM entities LIMIT 1") is not None
+
+    @_serialized
     async def filter_existing_entity_ids(self, entity_ids: list[str]) -> list[str]:
         if not entity_ids:
             return []
@@ -258,8 +262,11 @@ class PostgresKnowledgeGraph:
 
     @_serialized
     async def get_reconcile_candidates(self) -> list[Entity]:
-        """Bound model/view/table entities a proposed metric could bind to."""
-        types = [EntityType.MODEL.value, EntityType.VIEW.value, EntityType.TABLE.value]
+        """Bound model/view/table/metric entities a proposed metric could bind to."""
+        types = [
+            EntityType.MODEL.value, EntityType.VIEW.value, EntityType.TABLE.value,
+            EntityType.METRIC.value,
+        ]
         rows = await self._conn.fetch(
             "SELECT * FROM entities WHERE status = $1 AND type = ANY($2::text[])",
             EntityStatus.BOUND.value, types,

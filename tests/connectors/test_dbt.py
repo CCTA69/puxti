@@ -5,7 +5,7 @@ import pytest
 
 from puxti.connectors.dbt import DbtConnector, _rename_column_in_sql
 from puxti.connectors.sql_utils import mentions_in_jinja, rename_column_fully
-from puxti.models import ChangeType, EntityType, SemanticChangeEvent
+from puxti.models import ChangeType, EdgeType, EntityStatus, EntityType, SemanticChangeEvent
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -220,6 +220,165 @@ async def test_revenue_depends_on_orders(connector):
         if e.from_entity_id == "model.jaffle_shop.revenue"
     }
     assert "model.jaffle_shop.orders" in revenue_deps
+
+
+# ── MetricFlow metrics ────────────────────────────────────────────────────────
+
+def _metric(name: str, metric_type: str, deps: list[str], description: str = "",
+            type_params: dict | None = None, filter_: dict | None = None) -> dict:
+    return {
+        "name": name,
+        "description": description,
+        "label": name.replace("_", " ").title(),
+        "type": metric_type,
+        "type_params": type_params or {},
+        "filter": filter_,
+        "depends_on": {"macros": [], "nodes": deps},
+    }
+
+
+METRICS_MANIFEST = {
+    **MANIFEST,
+    "semantic_models": {
+        "semantic_model.jaffle_shop.orders": {
+            "name": "orders",
+            "depends_on": {"nodes": ["model.jaffle_shop.orders"]},
+            "measures": [
+                {"name": "order_total", "agg": "sum", "expr": None},
+                {"name": "order_count", "agg": "sum", "expr": "1"},
+            ],
+        },
+        "semantic_model.jaffle_shop.ghost": {"name": "ghost", "depends_on": {"nodes": []},
+                                             "measures": []},
+    },
+    "metrics": {
+        "metric.jaffle_shop.order_total": _metric(
+            "order_total", "simple", ["semantic_model.jaffle_shop.orders"],
+            description="Sum of order totals.",
+            type_params={"measure": {"name": "order_total"}},
+        ),
+        "metric.jaffle_shop.large_orders": _metric(
+            "large_orders", "simple", ["semantic_model.jaffle_shop.orders"],
+            description="Orders over 20.",
+            type_params={"measure": {"name": "order_count"}},
+            filter_={"where_filters": [
+                {"where_sql_template": "{{ Dimension('order_id__order_total') }} >= 20\n"},
+            ]},
+        ),
+        "metric.jaffle_shop.average_order_value": _metric(
+            "average_order_value", "derived",
+            ["metric.jaffle_shop.order_total", "metric.jaffle_shop.large_orders"],
+            description="Total over count.",
+            type_params={
+                "expr": "order_total / large_orders",
+                "metrics": [{"name": "order_total"}, {"name": "large_orders"}],
+            },
+        ),
+        "metric.jaffle_shop.order_total_growth": _metric(
+            "order_total_growth", "derived", ["metric.jaffle_shop.order_total"],
+            type_params={
+                "expr": "(current - prev) / prev",
+                "metrics": [
+                    {"name": "order_total", "alias": "current"},
+                    {"name": "order_total", "alias": "prev",
+                     "offset_window": {"count": 1, "granularity": "month"}},
+                ],
+            },
+        ),
+        "metric.jaffle_shop.large_order_pct": _metric(
+            "large_order_pct", "ratio",
+            ["metric.jaffle_shop.large_orders", "metric.jaffle_shop.order_total"],
+            type_params={"numerator": {"name": "large_orders"},
+                         "denominator": {"name": "order_total"}},
+        ),
+        "metric.jaffle_shop.rolling_order_total": _metric(
+            "rolling_order_total", "cumulative", ["semantic_model.jaffle_shop.orders"],
+            type_params={
+                "measure": {"name": "order_total"},
+                "cumulative_type_params": {"window": "7 days", "grain_to_date": None},
+            },
+        ),
+        "metric.jaffle_shop.ghost_metric": _metric(
+            "ghost_metric", "conversion", ["semantic_model.jaffle_shop.ghost"],
+        ),
+    },
+}
+
+
+@pytest.fixture
+def metrics_connector(tmp_path: Path) -> DbtConnector:
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / "manifest.json").write_text(json.dumps(METRICS_MANIFEST))
+    return DbtConnector(config={"project_dir": str(tmp_path)})
+
+
+async def test_extracts_metric_entities(metrics_connector):
+    entities = await metrics_connector.extract_entities()
+    metrics = {e.id: e for e in entities if e.type == EntityType.METRIC}
+    assert set(metrics) == set(METRICS_MANIFEST["metrics"])
+    aov = metrics["metric.jaffle_shop.average_order_value"]
+    assert aov.name == "average_order_value"
+    assert aov.project == "jaffle_shop"
+    assert aov.source_connector == "dbt"
+    assert aov.status == EntityStatus.BOUND
+    assert aov.metadata["metric_type"] == "derived"
+
+
+async def test_metric_lineage_resolves_semantic_models_to_models(metrics_connector):
+    edges = await metrics_connector.extract_lineage()
+    deps: dict[str, list[str]] = {}
+    for e in edges:
+        if e.from_entity_id.startswith("metric."):
+            deps.setdefault(e.from_entity_id, []).append(e.to_entity_id)
+    assert deps["metric.jaffle_shop.order_total"] == ["model.jaffle_shop.orders"]
+    assert sorted(deps["metric.jaffle_shop.average_order_value"]) == [
+        "metric.jaffle_shop.large_orders", "metric.jaffle_shop.order_total",
+    ]
+    # Two inputs on the same metric collapse to one edge.
+    assert deps["metric.jaffle_shop.order_total_growth"] == ["metric.jaffle_shop.order_total"]
+    # A semantic model with no backing model yields no edge, not a dangling one.
+    assert "metric.jaffle_shop.ghost_metric" not in deps
+    assert all(e.type == EdgeType.DEPENDS_ON and e.connector == "dbt" for e in edges)
+
+
+async def test_manifest_without_metrics_scans_as_before(connector):
+    entities = await connector.extract_entities()
+    edges = await connector.extract_lineage()
+    assert not [e for e in entities if e.type == EntityType.METRIC]
+    assert not [e for e in edges if e.from_entity_id.startswith("metric.")]
+    assert connector.get_seed_definitions() == {}
+
+
+def test_seed_definitions_state_each_metric_type(metrics_connector):
+    defs = metrics_connector.get_seed_definitions()
+    assert defs["metric.jaffle_shop.order_total"] == (
+        "Sum of order totals.\n\n"
+        "Simple metric: sum of order_total (measure order_total in semantic model orders)"
+    )
+    assert defs["metric.jaffle_shop.large_orders"] == (
+        "Orders over 20.\n\n"
+        "Simple metric: sum of 1 (measure order_count in semantic model orders)\n"
+        "Filter: {{ Dimension('order_id__order_total') }} >= 20"
+    )
+    assert defs["metric.jaffle_shop.average_order_value"] == (
+        "Total over count.\n\n"
+        "Derived metric: order_total / large_orders\n"
+        "Inputs: order_total, large_orders"
+    )
+    # No description: the formula is the whole definition.
+    assert defs["metric.jaffle_shop.order_total_growth"] == (
+        "Derived metric: (current - prev) / prev\n"
+        "Inputs: order_total (as current), order_total offset by 1 month (as prev)"
+    )
+    assert defs["metric.jaffle_shop.large_order_pct"] == (
+        "Ratio metric: large_orders / order_total"
+    )
+    assert defs["metric.jaffle_shop.rolling_order_total"] == (
+        "Cumulative metric: sum of order_total (measure order_total in semantic model "
+        "orders), over a 7 days window"
+    )
+    assert defs["metric.jaffle_shop.ghost_metric"] == "Conversion metric."
 
 
 # ── generate_changes — column rename ─────────────────────────────────────────
@@ -787,3 +946,63 @@ def test_find_model_path_missing_file_returns_none(tmp_path):
 def test_find_model_path_missing_manifest_returns_none(tmp_path):
     connector = DbtConnector(config={"project_dir": str(tmp_path)})
     assert connector.find_model_path("model.shop.orders") is None
+
+
+def test_seed_definitions_include_input_and_measure_filters(tmp_path):
+    manifest = {
+        **METRICS_MANIFEST,
+        "metrics": {
+            "metric.jaffle_shop.food_order_pct": _metric(
+                "food_order_pct", "ratio", ["metric.jaffle_shop.orders"],
+                type_params={
+                    "numerator": {"name": "orders", "filter": {"where_filters": [
+                        {"where_sql_template": "{{ Dimension('order__is_food') }} = true"},
+                    ]}},
+                    "denominator": {"name": "orders"},
+                },
+            ),
+            "metric.jaffle_shop.big_order_total": _metric(
+                "big_order_total", "simple", ["semantic_model.jaffle_shop.orders"],
+                type_params={"measure": {"name": "order_total", "filter": {"where_filters": [
+                    {"where_sql_template": "{{ Dimension('order__total') }} > 100"},
+                ]}}},
+            ),
+        },
+    }
+    (tmp_path / "target").mkdir()
+    (tmp_path / "target" / "manifest.json").write_text(json.dumps(manifest))
+    defs = DbtConnector(config={"project_dir": str(tmp_path)}).get_seed_definitions()
+    assert defs["metric.jaffle_shop.food_order_pct"] == (
+        "Ratio metric: orders (where {{ Dimension('order__is_food') }} = true) / orders"
+    )
+    assert defs["metric.jaffle_shop.big_order_total"] == (
+        "Simple metric: sum of order_total (measure order_total in semantic model orders), "
+        "where {{ Dimension('order__total') }} > 100"
+    )
+
+
+def test_seed_definitions_without_a_resolvable_measure(tmp_path):
+    manifest = {
+        **METRICS_MANIFEST,
+        "metrics": {
+            "metric.jaffle_shop.no_measure": _metric("no_measure", "simple", []),
+            "metric.jaffle_shop.unknown_measure": _metric(
+                "unknown_measure", "simple", [], type_params={"measure": {"name": "gone"}},
+            ),
+            "metric.jaffle_shop.inline_agg": _metric(
+                "inline_agg", "simple", [], type_params={"agg": "sum", "expr": "amount"},
+            ),
+            "metric.jaffle_shop.no_measure_cumulative": _metric(
+                "no_measure_cumulative", "cumulative", [],
+            ),
+        },
+    }
+    (tmp_path / "target").mkdir()
+    (tmp_path / "target" / "manifest.json").write_text(json.dumps(manifest))
+    defs = DbtConnector(config={"project_dir": str(tmp_path)}).get_seed_definitions()
+    assert defs["metric.jaffle_shop.no_measure"] == "Simple metric."
+    assert defs["metric.jaffle_shop.unknown_measure"] == "Simple metric: measure gone"
+    assert defs["metric.jaffle_shop.inline_agg"] == "Simple metric: sum of amount"
+    assert defs["metric.jaffle_shop.no_measure_cumulative"] == (
+        "Cumulative metric, over all time."
+    )

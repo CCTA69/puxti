@@ -118,3 +118,57 @@ def test_reconcile_no_proposed_is_noop(tmp_path):
         await kg.close()
 
     asyncio.run(scenario())
+
+
+async def _seed_metric(kg, entity_id, name, project="shop"):
+    await kg.upsert_entity(
+        Entity(
+            id=entity_id, name=name, type=EntityType.METRIC, source_connector="dbt",
+            project=project,
+        )
+    )
+
+
+def test_reconcile_prefers_scanned_metric_over_same_named_model(tmp_path):
+    db_path = tmp_path / "graph.db"
+
+    async def scenario():
+        kg = KnowledgeGraph(db_path=db_path)
+        await kg.connect()
+        await _seed_proposed(kg, "orders")
+        await _seed_model(kg, "model.shop.orders", "orders")
+        await _seed_metric(kg, "metric.shop.orders", "orders")
+        with patch("puxti.cli.scan.console.input", return_value="y"):
+            await _reconcile_proposed(kg, interactive=False)
+        gone = await kg.get_entity_by_id("metric.proposed.orders")
+        metric_def = await kg.get_latest_definition("metric.shop.orders")
+        model_def = await kg.get_latest_definition("model.shop.orders")
+        await kg.close()
+        return gone, metric_def, model_def
+
+    gone, metric_def, model_def = asyncio.run(scenario())
+    assert gone is None
+    assert metric_def is not None and metric_def.description == "total orders"
+    assert model_def is None
+
+
+def test_reconcile_two_metrics_with_the_name_stay_unmatched(tmp_path):
+    db_path = tmp_path / "graph.db"
+
+    async def scenario():
+        kg = KnowledgeGraph(db_path=db_path)
+        await kg.connect()
+        await _seed_proposed(kg, "orders")
+        await _seed_model(kg, "model.shop.orders", "orders")
+        await _seed_metric(kg, "metric.shop.orders", "orders")
+        await _seed_metric(kg, "metric.other.orders", "orders", project="other")
+        with patch("puxti.cli.scan.console.input", return_value="y") as prompt:
+            await _reconcile_proposed(kg, interactive=False)
+        still = await kg.get_entity_by_id("metric.proposed.orders")
+        await kg.close()
+        return still, prompt.called
+
+    still, prompted = asyncio.run(scenario())
+    # Ambiguous between two metrics: no fallback to the model, no prompt.
+    assert still is not None and still.status == EntityStatus.PROPOSED
+    assert prompted is False

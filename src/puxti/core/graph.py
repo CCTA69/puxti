@@ -248,6 +248,7 @@ class GraphStore(Protocol):
     async def get_entity_by_name(self, name: str, connector: str) -> Entity | None: ...
     async def get_entity_by_id(self, entity_id: str) -> Entity | None: ...
     async def get_all_entity_ids(self) -> list[str]: ...
+    async def has_entities(self) -> bool: ...
     async def filter_existing_entity_ids(self, entity_ids: list[str]) -> list[str]: ...
     async def get_all_entities_with_definitions(
         self,
@@ -415,6 +416,10 @@ class SqliteKnowledgeGraph:
         async with self._db.execute("SELECT id FROM entities ORDER BY id") as cur:
             return [row["id"] for row in await cur.fetchall()]
 
+    async def has_entities(self) -> bool:
+        async with self._db.execute("SELECT 1 FROM entities LIMIT 1") as cur:
+            return await cur.fetchone() is not None
+
     async def filter_existing_entity_ids(self, entity_ids: list[str]) -> list[str]:
         if not entity_ids:
             return []
@@ -475,8 +480,11 @@ class SqliteKnowledgeGraph:
             return [_to_entity(r) for r in await cur.fetchall()]
 
     async def get_reconcile_candidates(self) -> list[Entity]:
-        """Bound model/view/table entities a proposed metric could bind to."""
-        types = (EntityType.MODEL.value, EntityType.VIEW.value, EntityType.TABLE.value)
+        """Bound model/view/table/metric entities a proposed metric could bind to."""
+        types = (
+            EntityType.MODEL.value, EntityType.VIEW.value, EntityType.TABLE.value,
+            EntityType.METRIC.value,
+        )
         placeholders = ",".join("?" * len(types))
         async with self._db.execute(
             f"SELECT * FROM entities WHERE status=? AND type IN ({placeholders})",
