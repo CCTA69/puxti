@@ -555,6 +555,14 @@ When enabled, each command reports: command name, duration, exit status (0 or 1)
 
 ---
 
+## Support the project
+
+If Puxti saved you a migration, a ⭐ on [GitHub](https://github.com/puxti-labs/puxti) helps other data teams find it.
+
+The CLI asks for this once, after your first successful command in an interactive terminal. It records `star_shown = true` in `~/.puxti/config.toml` and never shows the message again. CI runs and coding agents never see it.
+
+---
+
 ## Contributing
 
 Open an issue on [GitHub](https://github.com/puxti-labs/puxti) to report
