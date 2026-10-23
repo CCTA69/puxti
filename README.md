@@ -38,520 +38,61 @@ Together, these layers let Puxti reason about what a change *means* across the s
 ## Requirements
 
 - **Python 3.12 or 3.13** — dbt-duckdb is not yet compatible with Python 3.14
-- **An LLM API key** (BYOK — bring your own key, from any supported provider) — for semantic reasoning. Your key stays in your environment and is used to call your provider directly — nothing goes through a Puxti-controlled server. The default provider is Anthropic (`claude-sonnet-5-5`): typical cost for `puxti scan` on a 20-model project is under $0.05; `puxti capture` on a single column is under $0.02. See [LLM providers](#llm-providers-byok) for OpenAI, Mistral, GLM, DeepSeek, Groq, OpenRouter, Gemini, AWS Bedrock, and local Ollama/vLLM.
-- **GitHub personal access token** — with `repo` scope (Contents + Pull requests write)
+- **An LLM API key** (BYOK) from any supported provider. Your key stays in your environment and calls your provider directly. The default is Anthropic (`claude-sonnet-5-5`); `puxti scan` on a 20-model project typically costs under $0.05. See [LLM providers](https://github.com/puxti-labs/puxti/blob/main/docs/configuration.md#llm-providers-byok).
+- **GitHub personal access token** with `repo` scope (Contents + Pull requests write)
 - **A dbt project** with a compiled `manifest.json` (`dbt compile` or `dbt run`)
+
+Puxti runs fully locally. No data or metadata leaves your machine except the calls to your LLM provider and GitHub.
 
 ---
 
-## Installation
+## Quick start
 
 ```bash
 pip install puxti
+cp .env.example .env      # set ANTHROPIC_API_KEY, GITHUB_TOKEN, DBT_PROJECT_DIR
+puxti health              # verify the key, the manifest and GitHub access
+puxti scan                # build the Knowledge Graph; nothing is written without your confirmation
+puxti impact model.jaffle_shop.orders   # what depends on orders, no LLM call
 ```
 
-No authentication required. Puxti runs fully locally — no data or metadata leaves your machine except for the Anthropic API calls described above.
+Then connect a coding agent so it can query the graph: add `puxti mcp serve` as an MCP server and run `puxti mcp init` to install the agent skill. See [MCP](https://github.com/puxti-labs/puxti/blob/main/docs/mcp.md).
 
 ---
 
-## Configuration
+## Commands
 
-Copy the example env file and fill in your credentials:
-
-```bash
-cp .env.example .env
-```
-
-| Variable | Description |
+| Command | What it does |
 |---|---|
-| `ANTHROPIC_API_KEY` | Your Anthropic API key — get one at [console.anthropic.com](https://console.anthropic.com). Only needed with the default provider. |
-| `GITHUB_TOKEN` | Personal access token with `repo` scope (Contents + Pull requests write) |
-| `DBT_PROJECT_DIR` | Path to your dbt project root (the directory containing `dbt_project.yml`) |
-| `DBT_PROFILES_DIR` | Path to your dbt profiles directory — usually `~/.dbt` |
-| `LLM_PROVIDER` | LLM provider (optional, default `anthropic`) — see [LLM providers](#llm-providers-byok) |
-| `LLM_MODEL` | Model ID (required for non-Anthropic providers; overrides the default `claude-sonnet-5-5` otherwise) |
-| `LLM_API_KEY` | API key for the selected provider (falls back to `ANTHROPIC_API_KEY` for the default provider) |
-| `LLM_BASE_URL` | Override the provider's base URL (custom endpoints, non-default Bedrock regions) |
-| `LLM_INPUT_COST_PER_MTOK` / `LLM_OUTPUT_COST_PER_MTOK` | USD per million tokens for `--dry-run` cost estimates on models puxti doesn't know (optional) |
-| `LLM_CONCURRENCY` | Max parallel LLM calls during `puxti scan` (optional, default 4) — raise only if your provider's rate-limit tier allows it |
-| `DATABASE_URL` | Postgres DSN for the Knowledge Graph (optional) — see [Storage backends](#storage-backends). Unset uses the default local SQLite file. |
+| `puxti scan` | Build the Knowledge Graph from dbt, Prisma and SQL views, including MetricFlow metrics |
+| `puxti impact` | Show what depends on an entity, no LLM call |
+| `puxti capture` | Propagate a column rename and open a PR |
+| `puxti redefine` | Change what an entity means and open a PR for the affected models |
+| `puxti correct` | Fix a wrong definition without touching code |
+| `puxti define` / `puxti bind` | Define a metric before a model implements it, then bind it |
+| `puxti link` | Declare a cross-system edge, such as an Airflow task feeding a dbt source |
+| `puxti describe` / `puxti graph` | Inspect the graph in the terminal or as an HTML page |
+| `puxti mcp serve` / `puxti mcp init` | Serve the graph to coding agents and teach them to use it |
+| `puxti config` / `puxti health` | Show resolved config and check connectivity |
+| `puxti purge` | Remove a project or the whole graph |
 
 ---
 
-## Storage backends
-
-Puxti's Knowledge Graph lives in a local SQLite file at `~/.puxti/graph.db` by default — no setup, nothing to run.
-
-To store it in **Postgres** instead (for a shared or server deployment), install the extra and point `DATABASE_URL` at your database:
-
-```bash
-pip install 'puxti[postgres]'
-export DATABASE_URL=postgresql://user:password@host:5432/puxti
-```
-
-Puxti creates its tables on first connect, so the database must already exist — create it (or reuse one) before running any command. Both backends store identical data, so every command (`scan`, `define`, `impact`, `describe`, …) and the MCP server work the same way against either.
-
----
-
-## LLM providers (BYOK)
-
-Puxti is provider-agnostic: bring a key from any of these and set two or three env vars. Every provider below speaks the OpenAI-compatible wire format at its own endpoint; Anthropic (the default) uses its native API.
-
-```bash
-# Example: Mistral
-LLM_PROVIDER=mistral
-LLM_MODEL=mistral-large-latest
-LLM_API_KEY=...
-```
-
-| `LLM_PROVIDER` | Endpoint | Where to get a key |
-|---|---|---|
-| `anthropic` *(default)* | native Anthropic API | [console.anthropic.com](https://console.anthropic.com) — or just set `ANTHROPIC_API_KEY` |
-| `openai` | api.openai.com | [platform.openai.com](https://platform.openai.com) |
-| `mistral` | api.mistral.ai | [console.mistral.ai](https://console.mistral.ai) |
-| `glm` | open.bigmodel.cn | [bigmodel.cn](https://open.bigmodel.cn) (Zhipu / GLM) |
-| `deepseek` | api.deepseek.com | [platform.deepseek.com](https://platform.deepseek.com) |
-| `groq` | api.groq.com | [console.groq.com](https://console.groq.com) |
-| `openrouter` | openrouter.ai | [openrouter.ai](https://openrouter.ai) — one key, many models |
-| `gemini` | Gemini OpenAI-compat endpoint | [aistudio.google.com](https://aistudio.google.com) |
-| `bedrock` | Bedrock Mantle (`us-east-1`; other regions via `LLM_BASE_URL`) | Bedrock API key from the AWS console |
-| `bedrock-anthropic` | Claude on Bedrock Mantle, Anthropic Messages API (`us-east-1`; other regions via `LLM_BASE_URL`) | Bedrock API key from the AWS console; set `LLM_MODEL` to the Bedrock model ID |
-| `ollama` | localhost:11434 — no key needed | local install from [ollama.com](https://ollama.com) |
-| `custom` | anything OpenAI-compatible via `LLM_BASE_URL` (vLLM, proxies) | your infrastructure |
-
-Notes:
-
-- **Cost estimates** (`--dry-run`): exact token counts and dollar costs on Anthropic; approximate token counts elsewhere, with dollar costs only when you provide `LLM_INPUT_COST_PER_MTOK` / `LLM_OUTPUT_COST_PER_MTOK` — puxti never guesses a price.
-- **`bedrock-anthropic` token counts**: puxti tries the exact `count_tokens` call first and falls back to an approximate count if the endpoint does not implement it. Dollar costs need `LLM_INPUT_COST_PER_MTOK` / `LLM_OUTPUT_COST_PER_MTOK`.
-- **Quality**: the semantic prompts expect strict JSON output; frontier models handle this reliably, small local models may not.
-- **Not covered**: Vertex AI (OAuth-based short-lived tokens, not a durable key). Claude on Bedrock works through `bedrock-anthropic` (Anthropic Messages API) or, for any model on Mantle, the OpenAI-compatible `bedrock` provider.
-
----
-
-## Workspace config (`.puxti.yml`)
-
-If your projects live in separate repos, add a `.puxti.yml` at the root of your workspace — the directory that contains the repo clones. Puxti discovers it by walking up from your current directory (git-style).
-
-```yaml
-version: 1
-
-connectors:
-  dbt:
-    project_dir: ./dbt
-    repo: your-org/your-dbt-repo
-    base_branch: main
-
-  airflow:
-    project_dir: ./airflow
-    repo: your-org/your-airflow-repo
-    dags_dir: dags/
-    base_branch: main
-
-  # Application schema (Prisma ORM) — tables and fields become entities,
-  # relations become lineage. schema_path defaults to prisma/schema.prisma.
-  prisma:
-    project_dir: ./app
-    repo: your-org/your-app-repo
-    schema_path: prisma/schema.prisma
-
-  # Plain CREATE VIEW .sql files — views, their columns, and the tables they
-  # read from become entities and lineage. dialect is any sqlglot dialect name.
-  sql_views:
-    project_dir: ./app
-    repo: your-org/your-app-repo
-    views_dir: db/views
-    dialect: postgres
-    default_schema: public
-```
-
-With this in place:
-- `--repo` is no longer required for `capture`, `redefine`, or `health`
-- `--dbt-project-dir` resolves from `connectors.dbt.project_dir` automatically
-- `puxti health` checks GitHub write access for each connector repo
-- `puxti scan` scans every configured producer (dbt, prisma, sql_views) and
-  links references across them — a view reading a Prisma-managed table gets a
-  real lineage edge
-- `puxti capture` propagates column renames through every configured connector
-  and opens one PR per repo
-
-Prisma rename diffs patch `schema.prisma` only — applying them still requires
-`prisma migrate dev` and `prisma generate`, and every generated PR says so.
-
-Run `puxti config` from anywhere inside the workspace to verify it was found:
-
-```
-.puxti.yml:  /your/workspace/.puxti.yml  found
-  connectors: dbt (your-org/your-dbt-repo · ./dbt), airflow (your-org/your-airflow-repo · ./airflow)
-```
-
-Precedence: CLI flags > `.puxti.yml` > environment variables.
-
----
-
-## Verify setup
-
-```bash
-puxti config   # show resolved config values and file locations
-puxti health   # verify connectivity to all services
-```
-
-Expected output from `puxti health`:
-
-```
-✓ Knowledge Graph  (~/.puxti/graph.db)
-✓ Anthropic API key
-✓ dbt manifest
-✓ GitHub write access — your-org/your-dbt-repo (dbt)
-```
-
----
-
-## Usage
-
-### Step 1 — Bootstrap the Knowledge Graph
-
-Run this once before using `capture` or `redefine`. It reads your dbt manifest, populates the structural lineage graph, and uses the LLM to infer starter definitions for each model.
-
-Two modes:
-
-- **Interactive** — walks through each model one by one. The LLM proposes a definition; you confirm, edit, or skip before anything is written. Slower, higher accuracy. Recommended for first onboarding.
-- **Auto** — generates all definitions in one pass, shows a summary table, and asks for a single confirmation before writing. Faster, but review carefully.
-
-```bash
-# Interactive mode
-puxti scan --dbt-project-dir /path/to/dbt --interactive
-
-# Auto mode
-puxti scan --dbt-project-dir /path/to/dbt
-```
-
-Nothing is written to the Knowledge Graph without your explicit confirmation.
-
-After definitions are confirmed, Puxti also proposes initial semantic edges between models and asks you to confirm those as a group.
-
-**MetricFlow metrics.** When the dbt project defines metrics (dbt 1.6+ writes them to `target/manifest.json` alongside `semantic_manifest.json`), scan imports each one as a metric entity with the ID `metric.<project>.<name>`. Lineage goes from a simple or cumulative metric to the model behind its semantic model, and from a derived or ratio metric to its input metrics. Each metric's definition comes straight from its YAML, with no LLM call: the description, then what it computes (for example `Derived metric: lifetime_spend_pretax / count_lifetime_orders`). Scan shows these definitions and asks for one confirmation before writing them (one per metric with `--interactive`, where you can also edit or skip each; an edited definition counts as yours). On a re-scan, a metric whose YAML changed gets a new definition version, and a definition someone wrote with `define`, `redefine` or `correct` is never overwritten; scan lists those metrics instead. A project without metrics scans exactly as before.
-
----
-
-### Step 1b — Link upstream producers (optional, but recommended)
-
-If your dbt sources are loaded by Airflow DAGs, declare the cross-system link once:
-
-```bash
-puxti link --from task.airflow.salesforce_sync.extract_opportunities --to source.clariva.raw_opportunities --description "Extracts Salesforce opportunities. amount is a roll-up of OpportunityLineItem.TotalPrice post Q1 2024 migration."
-```
-
-Puxti creates a `FEEDS` edge in the Knowledge Graph connecting the Airflow task to the dbt source. When you later run `puxti capture` on a change to `raw_opportunities.amount`, the generated PR will include full cross-system context.
-
-#### `link` options
-
-| Flag | Required | Description |
-|------|----------|-------------|
-| `--from` | Yes | Entity producing data (`task.airflow.<dag>.<task>` or `model.<project>.<name>`) |
-| `--to` | Yes | Entity receiving data (`source.<project>.<table>` or `model.<project>.<name>`) |
-| `--description` / `-d` | Yes | Semantic description of the relationship — what data flows and what it means |
-
----
-
-### Step 1c — Query impact before making a change (optional)
-
-Before running `capture` or `redefine`, you can see exactly what depends on an entity — no LLM calls, no changes made:
-
-```bash
-# Show all dependents of an entity
-puxti impact model.jaffle_shop.orders
-
-# Scope to a specific change type
-puxti impact model.jaffle_shop.orders --change-type rename
-puxti impact model.jaffle_shop.orders --change-type redefine
-puxti impact model.jaffle_shop.orders --change-type drop
-
-# JSON output (same shape as the MCP impact_of_change tool)
-puxti impact model.jaffle_shop.orders --json
-```
-
-Output shows each dependent entity, its hop distance from the target, and whether the relationship is semantic (concept-level) or structural (lineage/SQL reference). With `--change-type`, structural dependents are flagged as primary risk for `rename` and `drop`; semantic dependents for `redefine`.
-
-#### `impact` options
-
-| Flag | Required | Description |
-|------|----------|-------------|
-| `<entity>` | Yes | Entity ID to analyze (positional argument) |
-| `--change-type` | No | One of `rename`, `redefine`, `drop`, `type_change` — scopes the risk annotation |
-| `--json` | No | Output as JSON (same shape as the MCP `impact_of_change` tool) |
-
----
-
-### Step 1d — Define a metric before it exists (optional)
-
-Sometimes the definition comes before the model. You can register a metric's
-meaning now and let a model catch up later. `puxti define` writes a *proposed*
-metric into the Knowledge Graph. No LLM call, no dbt manifest, no PR: the
-definition is intent, not code.
-
-```bash
-puxti define --name net_revenue_retention --description "Revenue retained from existing customers, net of churn and contraction." --derived-from model.jaffle_shop.subscriptions
-```
-
-A proposed metric is never reported as a fact by the MCP tools (see below) until
-it is bound to a real entity. `puxti describe` lists proposed metrics in their own
-"Proposed (unbound)" section.
-
-`puxti define` refuses an ID that already belongs to a bound entity, such as a dbt metric scan imported; change that one's meaning with `puxti redefine` or fix it with `puxti correct`.
-
-Two ways to bind a proposed metric to the model that implements it:
-
-- `puxti scan` reconciles automatically. A metric defined with `--project` set to
-  the dbt project name has the same ID as the dbt metric that implements it, so
-  scan turns it into a bound metric in place and keeps your definition. Otherwise,
-  when a scanned model, view or dbt metric has the same name as a proposed metric,
-  scan offers the bind and you confirm it. It never binds silently, and it only
-  matches on an exact (case-insensitive) name.
-- `puxti bind` binds explicitly, for the cases scan cannot match by name:
-
-```bash
-puxti bind --proposed metric.proposed.net_revenue_retention --to model.jaffle_shop.fct_nrr
-```
-
-Binding carries the metric's definition onto the real entity as a new version and
-moves its semantic edges across.
-
-#### `define` options
-
-| Flag | Required | Description |
-|------|----------|-------------|
-| `--name` / `-n` | Yes | Metric name (e.g. `net_revenue_retention`) |
-| `--description` / `-d` | Yes | What the metric means |
-| `--project` / `-p` | No | Project to namespace the metric under |
-| `--derived-from` | No | Existing entity ID this metric is derived from; anchors it into impact analysis |
-
-#### `bind` options
-
-| Flag | Required | Description |
-|------|----------|-------------|
-| `--proposed` | Yes | Proposed metric entity ID (from `puxti define` / `puxti describe`) |
-| `--to` | Yes | Real entity ID that implements the metric |
-
----
-
-### Step 2a — Capture a column rename
-
-```bash
-puxti capture --entity "model.jaffle_shop.orders.order_date" --before "order_date" --after "recorded_date" --description "Renamed to clarify this is the date the order was recorded in the system, not the transaction date." --repo "your-org/your-dbt-repo"
-```
-
-Puxti will:
-
-1. Call the LLM to enrich your description and reason about affected entities
-2. Scan your dbt models for references to `order_date`
-3. Generate diffs replacing all occurrences with `recorded_date`
-4. Open a PR on `your-org/your-dbt-repo` with the diffs and semantic context
-
-#### `capture` options
-
-| Flag | Required | Description |
-|------|----------|-------------|
-| `--entity` / `-e` | Yes | Full entity ID (e.g. `model.project.model.column`) |
-| `--before` | Yes | Value before the change (old column name) |
-| `--after` | Yes | Value after the change (new column name) |
-| `--description` / `-d` | Yes | Human description of what the change means and why |
-| `--repo` | No | GitHub repo for the PR (`owner/repo`) — required unless `--dry-run` or set in `.puxti.yml` |
-| `--base-branch` | No | Base branch for the PR (default: `main`, or from `.puxti.yml`) |
-| `--dbt-project-dir` | No | Path to dbt project root (overrides `.puxti.yml` and `DBT_PROJECT_DIR`) |
-| `--dry-run` | No | Estimate token count and cost without running the capture |
-
----
-
-### Step 2b — Redefine what an entity means
-
-Use this when the *meaning* of an entity changes — not a rename, a conceptual shift (e.g. a revenue metric now excludes refunds).
-
-```bash
-puxti redefine --entity "model.jaffle_shop.orders.gross_revenue" --description "gross_revenue now excludes refunds — only settled transactions count." --repo "your-org/your-dbt-repo"
-```
-
-Puxti will:
-
-1. Traverse the semantic graph to find downstream entities whose meaning is now affected
-2. Walk the structural ancestor chain upstream for passthrough changes
-3. Generate SQL diffs with depth-aware confidence annotations
-4. Open a PR with both upstream passthrough diffs and downstream semantic diffs
-
-#### `redefine` options
-
-| Flag | Required | Description |
-|------|----------|-------------|
-| `--entity` / `-e` | Yes | Entity ID whose meaning is changing |
-| `--description` / `-d` | Yes | What the entity now means |
-| `--repo` | No | GitHub repo for the PR (`owner/repo`) — required unless `--dry-run` or set in `.puxti.yml` |
-| `--base-branch` | No | Base branch for the PR (default: `main`, or from `.puxti.yml`) |
-| `--dbt-project-dir` | No | Path to dbt project root (overrides `.puxti.yml` and `DBT_PROJECT_DIR`) |
-| `--dry-run` | No | Estimate token count and cost without calling the LLM or opening a PR |
-
----
-
-### Step 2c — Correct an inaccurate definition
-
-Use this when Puxti inferred a wrong definition during scan, or when you want to refine one without triggering code propagation.
-
-```bash
-puxti correct --entity "model.jaffle_shop.orders"
-```
-
-#### `correct` options
-
-| Flag | Required | Description |
-|------|----------|-------------|
-| `--entity` / `-e` | Yes | Entity ID to correct |
-| `--project` / `-p` | No | Validate the entity belongs to this project before proceeding |
-
----
-
-### Step 3 — Inspect the Knowledge Graph
-
-```bash
-# Full overview — all entities grouped by project, all semantic edges
-puxti describe
-
-# Filter overview to a single project
-puxti describe --project jaffle_shop
-
-# Single entity — full definition, incoming and outgoing edges
-puxti describe --entity "model.jaffle_shop.orders"
-```
-
----
-
-### Step 3b — Visualize the graph
-
-Render the Knowledge Graph as a self-contained, interactive HTML page:
-
-```bash
-puxti graph -o kg.html          # write the page
-puxti graph -o kg.html --open   # write it and open in your browser
-puxti graph --project jaffle_shop -o kg.html   # limit to one project
-```
-
-The page has an interactive force-directed view of your entities and their lineage
-and semantic relationships. Click a node to see its definition, relationships, and
-definition history. It is read-only, has no external dependencies (open it in any
-browser, no server needed), and proposed metrics from `puxti define` are shown with a
-distinct style so intent-vs-implemented is visible at a glance.
-
-#### `graph` options
-
-| Flag | Required | Description |
-|------|----------|-------------|
-| `--output` / `-o` | No | Path to write the HTML file to (default: `puxti-graph.html`) |
-| `--project` / `-p` | No | Only include entities from this project |
-| `--open` | No | Open the generated file in your browser |
-
----
-
-### Step 4 — Purge project data
-
-```bash
-# Remove a single project
-puxti purge --project jaffle_shop
-
-# Wipe the entire Knowledge Graph
-puxti purge --all
-```
-
----
-
-## Known Limitations
-
-**Re-scanning after dbt project changes**
-`puxti scan` is safe to re-run at any time — it upserts entities and definitions, so new models and columns will be added and existing ones updated. However, there is no prompt or workflow that reminds you to re-scan when your dbt project changes. Run `puxti scan` again whenever you add models, rename columns in your dbt layer, or change descriptions in yml files.
-
-**Column renames and Jinja**
-The rename is a text replacement and never edits Jinja (`{{ }}`, `{% %}`, `{# #}`). If the old column name appears inside a Jinja expression, for example a macro argument such as `dbt_utils.generate_surrogate_key(['order_date'])`, Puxti skips that model and lists it as unverified in the PR so you can update it by hand.
-
-**Column renames and qualified references**
-Qualified references such as `o.order_date` or `{{ ref('orders') }}.order_date` are never rewritten, because the text alone does not say which table the qualifier points to. Any model or view with a qualified reference to the renamed column is skipped entirely and listed as unverified, so the PR never carries a half-renamed model. Relation names such as `from raw.order_date` do not count as column references.
-
-**Finding entity IDs**
-Commands like `capture`, `redefine`, and `correct` require a full entity ID (e.g. `model.jaffle_shop.orders.order_date`). If you are not sure of an entity's ID, run `puxti describe` first — it lists all entities with their full IDs.
-
-**The `correct` → `redefine` handoff**
-When you classify a correction as a "real change", Puxti prints the `redefine` command to run next and asks whether to run it immediately. Press Enter or anything other than `y` to keep the copy-paste workflow.
-
-**Proposed metrics are inert until reconciled**
-A metric created with `puxti define` is a definition with no backing model. It holds no value and has no structural dependents until it is bound. `puxti scan` only auto-suggests a bind when a scanned model, view or dbt metric has the exact same name. A dbt metric wins over a model with the same name (jaffle-shop has both an `orders` metric and an `orders` model), and a name that two metrics or two models share is skipped; for anything else, bind it explicitly with `puxti bind`.
-
-**Metric impact is one hop**
-`impact_of_change` and `consumers` list direct dependents. A simple metric built on `orders` shows up in the impact of `orders`; a derived metric built on that simple metric does not, until you run impact on the simple metric itself. A column rename also leaves the semantic model YAML that references the column untouched.
-
----
-
-## Use with Claude Code / Cursor (MCP)
-
-Puxti ships an MCP server so coding agents can query your knowledge graph without leaving their context window.
-
-**Add to Claude Code** (`~/.claude/claude_code_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "puxti": {
-      "command": "puxti",
-      "args": ["mcp", "serve"]
-    }
-  }
-}
-```
-
-Once connected, five read-only tools are available:
-
-| Tool | What it answers |
-|---|---|
-| `search_entities` | What is the exact ID of the entity called "average order value"? Matches name and ID, filters by type. |
-| `impact_of_change` | Which entities depend on this one and would break? |
-| `consumers` | Which models directly read from this entity? |
-| `describe_entity` | What does this entity mean? What semantic edges does it have? |
-| `definition_history` | How has the meaning of this entity evolved over time? |
-
-For a *proposed* metric (one created with `puxti define` but not yet bound to a model), `describe_entity` returns the definition with `"bound": false`, and `impact_of_change` / `consumers` return a `"proposed"` marker with no dependents. The tools present a proposed metric as intent, never as a value to report.
-
-The other four tools take an exact `entity_id`. Agents call `search_entities` first to find it instead of guessing the ID format.
-
-Run `puxti scan` in your dbt project first to populate the graph.
-
-### Teach the agent to use the tools
-
-The tools give an agent *access* to the graph; they don't tell it *when* to consult the
-graph or how to report what it found. Without that, an agent answers a metric question
-from the first plausible model and returns a stale-but-confident number — the exact
-failure that makes agentic analytics untrustworthy.
-
-`puxti mcp init` writes an agent skill that closes the gap:
-
-```bash
-puxti mcp init            # writes .claude/skills/puxti-analytics/SKILL.md
-puxti mcp init --print    # same markdown to stdout — paste into Cursor rules, CLAUDE.md, any agent
-```
-
-The skill instructs the agent to check each entity's current definition and
-`definition_history` before trusting a model, honor the latest definition (a model whose
-SQL lags its definition is flagged as unreliable, not reported as fact), and end every
-metric answer with a provenance footer citing the definition version, who authored it,
-and when. It is puxti's small-scale version of the "skills" layer from Anthropic's
-self-service analytics work.
+## Guides
+
+- [Configuration](https://github.com/puxti-labs/puxti/blob/main/docs/configuration.md): environment variables, LLM providers, Postgres storage, `.puxti.yml` workspaces
+- [Commands](https://github.com/puxti-labs/puxti/blob/main/docs/commands.md): every command with examples and options
+- [Metrics](https://github.com/puxti-labs/puxti/blob/main/docs/metrics.md): MetricFlow import, `define` and `bind`
+- [MCP](https://github.com/puxti-labs/puxti/blob/main/docs/mcp.md): Claude Code and Cursor setup, the tools, the agent skill
+- [Known limitations](https://github.com/puxti-labs/puxti/blob/main/docs/limitations.md)
+- [Architecture](https://github.com/puxti-labs/puxti/blob/main/docs/architecture.md): how puxti works inside
+- [getpuxti.com/docs](https://getpuxti.com/docs.html)
 
 ---
 
 ## Telemetry
 
-Puxti collects anonymous, opt-in usage analytics. Telemetry is **off by default**.
-
-```bash
-puxti telemetry on     # enable
-puxti telemetry off    # disable
-puxti telemetry show   # check current status
-```
-
-When enabled, each command reports: command name, duration, exit status (0 or 1), and a random install ID (no project data, no entity names, no SQL). Events go to PostHog EU (`eu.i.posthog.com`). See [`TELEMETRY.md`](TELEMETRY.md) for the full field list.
+Anonymous, opt-in usage analytics, **off by default**. Turn it on with `puxti telemetry on`. When enabled, each command reports its name, duration, exit status and a random install ID: no project data, no entity names, no SQL. See [`TELEMETRY.md`](https://github.com/puxti-labs/puxti/blob/main/TELEMETRY.md).
 
 ---
 
@@ -565,81 +106,10 @@ The CLI asks for this once, after your first successful command in an interactiv
 
 ## Contributing
 
-Open an issue on [GitHub](https://github.com/puxti-labs/puxti) to report
-bugs, request features, or ask questions. A good first contribution is
-fixing one of the known limitations above.
-
-AI-assisted contributions are welcome — Puxti's audience uses AI coding
-tools and we do too. We ask the same thing of every contributor, AI-assisted
-or not: be able to explain what your change does, why it's the right
-approach, and how it interacts with the rest of the codebase. PRs whose
-authors can't engage with review feedback won't be merged regardless of
-how they were produced.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup and what a good PR
-looks like. For non-trivial changes, open an issue first to discuss the
-approach before writing code.
+Bug reports, feature requests and questions go in [GitHub issues](https://github.com/puxti-labs/puxti/issues). AI-assisted contributions are welcome. See [CONTRIBUTING.md](https://github.com/puxti-labs/puxti/blob/main/CONTRIBUTING.md) for dev setup, the project layout and what a good PR looks like.
 
 ---
 
 ## License
 
-Apache 2.0. See [LICENSE](./LICENSE).
-
----
-
-## Development
-
-### Setup
-
-```bash
-uv sync --extra dev    # install runtime + dev dependencies (pytest, ruff, twine)
-```
-
-### Running tests
-
-```bash
-uv run pytest                       # run all tests
-uv run pytest tests/cli            # run CLI command tests only
-uv run pytest -v                    # verbose output
-```
-
-### Linting and formatting
-
-```bash
-uv run ruff check src/     # lint
-uv run ruff format src/    # format
-```
-
----
-
-## Project structure
-
-```
-src/puxti/
-├── cli/                    # entry point — one module per command
-│   ├── _app.py             # Typer apps + root callback
-│   ├── _shared.py          # consoles, async runner, workspace loading
-│   └── capture.py, scan.py, …   # one command each
-├── models.py               # all data types (Pydantic)
-├── settings.py             # config (reads from .env)
-├── workspace.py            # .puxti.yml discovery and resolution
-├── core/
-│   ├── capture.py          # semantic capture — LLM enrichment + Knowledge Graph write
-│   ├── corrector.py        # puxti correct — definition correction without propagation
-│   ├── graph.py            # Knowledge Graph — GraphStore interface + SQLite backend + factory
-│   ├── graph_postgres.py   # Knowledge Graph — Postgres backend (opt-in via DATABASE_URL)
-│   ├── scanner.py          # puxti scan — bootstraps KG from producer connectors
-│   ├── resolution.py       # cross-connector table-reference resolution
-│   └── redefine.py         # puxti redefine — semantic change propagation
-├── connectors/
-│   ├── base.py             # connector interface
-│   ├── registry.py         # builds configured producers from .puxti.yml
-│   ├── airflow.py          # Airflow connector — DAG parsing + task diff generation
-│   ├── dbt.py              # dbt connector — entity extraction + diffs
-│   ├── prisma.py           # Prisma connector — schema.prisma models, relations, rename diffs
-│   ├── sql_views.py        # SQL views connector — CREATE VIEW files via sqlglot
-│   └── github.py           # GitHub connector — PR creation
-└── propagation/
-    └── engine.py           # propagation engine — orchestrates connectors
-```
+Apache 2.0. See [LICENSE](https://github.com/puxti-labs/puxti/blob/main/LICENSE).

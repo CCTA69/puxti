@@ -11,7 +11,7 @@ most changes are reviewable in one sitting, and we'd like to keep it that way.
   approach. It saves you from building something we can't merge.
 - **Good first contributions**: issues labeled
   [`good first issue`](https://github.com/puxti-labs/puxti/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22),
-  or fixing one of the known limitations listed in the README.
+  or fixing one of the [known limitations](docs/limitations.md).
 
 ## Development setup
 
@@ -34,6 +34,37 @@ To try your changes against a real project, the
 [airflow-demo-project](https://github.com/puxti-labs/airflow-demo-project)
 repos exist exactly for that.
 
+## Project structure
+
+```
+src/puxti/
+├── cli/                    # entry point — one module per command
+│   ├── _app.py             # Typer apps + root callback
+│   ├── _shared.py          # consoles, async runner, workspace loading
+│   └── capture.py, scan.py, …   # one command each
+├── models.py               # all data types (Pydantic)
+├── settings.py             # config (reads from .env)
+├── workspace.py            # .puxti.yml discovery and resolution
+├── core/
+│   ├── capture.py          # semantic capture — LLM enrichment + Knowledge Graph write
+│   ├── corrector.py        # puxti correct — definition correction without propagation
+│   ├── graph.py            # Knowledge Graph — GraphStore interface + SQLite backend + factory
+│   ├── graph_postgres.py   # Knowledge Graph — Postgres backend (opt-in via DATABASE_URL)
+│   ├── scanner.py          # puxti scan — bootstraps KG from producer connectors
+│   ├── resolution.py       # cross-connector table-reference resolution
+│   └── redefine.py         # puxti redefine — semantic change propagation
+├── connectors/
+│   ├── base.py             # connector interface
+│   ├── registry.py         # builds configured producers from .puxti.yml
+│   ├── airflow.py          # Airflow connector — DAG parsing + task diff generation
+│   ├── dbt.py              # dbt connector — entity extraction + diffs
+│   ├── prisma.py           # Prisma connector — schema.prisma models, relations, rename diffs
+│   ├── sql_views.py        # SQL views connector — CREATE VIEW files via sqlglot
+│   └── github.py           # GitHub connector — PR creation
+└── propagation/
+    └── engine.py           # propagation engine — orchestrates connectors
+```
+
 ## What a good PR looks like
 
 - **Tests ship with the change.** Any change that adds or modifies behavior
@@ -41,7 +72,8 @@ repos exist exactly for that.
   (docs, comments), say so in the PR description rather than silently skipping it.
 - **A CHANGELOG entry** under `## [Unreleased]` for anything user-visible.
 - **Docs move with behavior.** If a command gains a flag or behavior shifts,
-  update the README and `--help` text in the same PR.
+  update the relevant guide in `docs/` (and the README command table if a
+  command is added) and the `--help` text in the same PR.
 - **No drive-by refactors.** A bug fix is a bug fix; keep unrelated cleanups
   for their own PR so review stays easy.
 - **No new lint findings**: `uv run ruff check src/` should not get worse.
