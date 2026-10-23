@@ -125,3 +125,60 @@ def test_define_derived_from_missing_target_exits_1(tmp_path):
         )
     assert result.exit_code == 1
     assert "not found" in plain(result.output)
+
+
+def test_define_refuses_to_demote_a_bound_scanned_metric(tmp_path):
+    db_path = tmp_path / "graph.db"
+
+    async def seed():
+        kg = KnowledgeGraph(db_path=db_path)
+        await kg.connect()
+        await kg.upsert_entity(Entity(
+            id="metric.jaffle_shop.revenue", name="revenue", type=EntityType.METRIC,
+            source_connector="dbt", project="jaffle_shop",
+        ))
+        await kg.close()
+
+    asyncio.run(seed())
+    with patch("puxti.cli.define.KnowledgeGraph", lambda: KnowledgeGraph(db_path=db_path)):
+        result = runner.invoke(
+            app,
+            ["define", "--name", "revenue", "--project", "jaffle_shop", "--description", "…"],
+        )
+    assert result.exit_code == 1
+    out = plain(result.output)
+    assert "already exists as a bound metric" in out
+    assert "puxti redefine" in out
+
+    async def read():
+        kg = KnowledgeGraph(db_path=db_path)
+        await kg.connect()
+        try:
+            entity = await kg.get_entity_by_id("metric.jaffle_shop.revenue")
+            return entity, await kg.get_latest_definition(entity.id)
+        finally:
+            await kg.close()
+
+    entity, definition = asyncio.run(read())
+    assert entity.status == EntityStatus.BOUND
+    assert entity.source_connector == "dbt"
+    assert definition is None
+
+
+def test_define_again_on_a_proposed_metric_adds_a_version(tmp_path):
+    db_path = tmp_path / "graph.db"
+    args = ["define", "--name", "nrr", "--description"]
+    with patch("puxti.cli.define.KnowledgeGraph", lambda: KnowledgeGraph(db_path=db_path)):
+        assert runner.invoke(app, [*args, "first"]).exit_code == 0
+        assert runner.invoke(app, [*args, "second"]).exit_code == 0
+
+    async def read():
+        kg = KnowledgeGraph(db_path=db_path)
+        await kg.connect()
+        try:
+            return await kg.get_latest_definition("metric.proposed.nrr")
+        finally:
+            await kg.close()
+
+    latest = asyncio.run(read())
+    assert (latest.version, latest.description) == (2, "second")

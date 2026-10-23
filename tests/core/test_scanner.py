@@ -63,6 +63,7 @@ def _make_connector(
     entities: list[Entity] | None = None,
     lineage: list[Edge] | None = None,
     sql_map: dict[str, str] | None = None,
+    seeds: dict[str, str] | None = None,
 ) -> MagicMock:
     connector = MagicMock()
     connector.extract_entities = AsyncMock(
@@ -73,6 +74,7 @@ def _make_connector(
         ORDERS_ENTITY.id: ORDERS_SQL,
         CUSTOMERS_ENTITY.id: CUSTOMERS_SQL,
     })
+    connector.get_seed_definitions = MagicMock(return_value=seeds or {})
     return connector
 
 
@@ -645,3 +647,137 @@ async def test_scan_without_reference_index_leaves_edges_untouched():
 
     upserted = graph.upsert_edge.await_args_list[0].args[0]
     assert upserted.to_entity_id == "sqlref.users"
+
+
+# ── scan — connector-stated (seed) definitions ────────────────────────────────
+
+AOV_METRIC = Entity(
+    id="metric.demo_shop.average_order_value",
+    name="average_order_value",
+    type=EntityType.METRIC,
+    source_connector="dbt",
+    project="demo_shop",
+)
+AOV_TEXT = "Revenue per order.\n\nDerived metric: revenue / orders"
+
+
+async def _real_graph():
+    from pathlib import Path
+
+    from puxti.core.graph import KnowledgeGraph
+
+    graph = KnowledgeGraph(db_path=Path(":memory:"))
+    await graph.connect()
+    await graph.upsert_entity(AOV_METRIC)
+    return graph
+
+
+async def test_scan_writes_seed_definitions_after_confirmation():
+    backend = _make_backend({})
+    backend.complete = AsyncMock(side_effect=[
+        _make_llm_response({"definition": "Orders model."}),
+        _make_llm_response({"definition": "Customers model."}),
+        _make_llm_response({"edges": []}),
+    ])
+    scanner = SemanticScanner(backend=backend)
+    graph = _make_graph()
+    connector = _make_connector(
+        entities=[ORDERS_ENTITY, CUSTOMERS_ENTITY, AOV_METRIC],
+        seeds={AOV_METRIC.id: AOV_TEXT},
+    )
+    console = _make_console(inputs=["y", "y", "n"])  # model defs, metric defs, edges
+
+    result = await scanner.scan(connector, graph, interactive=False, console=console)
+
+    written = {c.args[0].entity_id: c.args[0] for c in graph.upsert_definition.call_args_list}
+    assert written[AOV_METRIC.id].description == AOV_TEXT
+    assert written[AOV_METRIC.id].created_by == "scan"
+    assert written[AOV_METRIC.id].version == 1
+    assert result.definitions_written == 3
+
+
+async def test_seed_definitions_skipped_when_not_confirmed():
+    graph = await _real_graph()
+    console = _make_console(inputs=[""])  # blank input never confirms
+    written = await SemanticScanner(backend=_make_backend({}))._write_seed_definitions(
+        {AOV_METRIC.id: AOV_TEXT}, [AOV_METRIC], graph, False, console
+    )
+    assert written == 0
+    assert await graph.get_latest_definition(AOV_METRIC.id) is None
+    await graph.close()
+
+
+async def test_seed_definition_unchanged_is_not_rewritten():
+    graph = await _real_graph()
+    await graph.upsert_definition(Definition(
+        entity_id=AOV_METRIC.id, description=AOV_TEXT, version=1, created_by="scan",
+    ))
+    console = _make_console()
+    written = await SemanticScanner(backend=_make_backend({}))._write_seed_definitions(
+        {AOV_METRIC.id: AOV_TEXT}, [AOV_METRIC], graph, False, console
+    )
+    assert written == 0
+    console.input.assert_not_called()
+    assert len(await graph.get_definition_history(AOV_METRIC.id)) == 1
+    await graph.close()
+
+
+async def test_seed_definition_changed_yaml_writes_new_version():
+    graph = await _real_graph()
+    await graph.upsert_definition(Definition(
+        entity_id=AOV_METRIC.id, description="Old YAML text.", version=1, created_by="scan",
+    ))
+    written = await SemanticScanner(backend=_make_backend({}))._write_seed_definitions(
+        {AOV_METRIC.id: AOV_TEXT}, [AOV_METRIC], graph, False, _make_console(inputs=["y"])
+    )
+    latest = await graph.get_latest_definition(AOV_METRIC.id)
+    assert written == 1
+    assert latest.version == 2
+    assert latest.description == AOV_TEXT
+    await graph.close()
+
+
+async def test_seed_definition_never_overwrites_user_definition():
+    graph = await _real_graph()
+    await graph.upsert_definition(Definition(
+        entity_id=AOV_METRIC.id, description="Net revenue per order, as finance defines it.",
+        version=1, created_by="user",
+    ))
+    console = _make_console()
+    written = await SemanticScanner(backend=_make_backend({}))._write_seed_definitions(
+        {AOV_METRIC.id: AOV_TEXT}, [AOV_METRIC], graph, False, console
+    )
+    latest = await graph.get_latest_definition(AOV_METRIC.id)
+    assert written == 0
+    assert latest.created_by == "user"
+    assert latest.version == 1
+    console.input.assert_not_called()
+    printed = " ".join(str(c.args[0]) for c in console.print.call_args_list)
+    assert "Kept 1 metric definition(s) written outside scan" in printed
+    assert "average_order_value (by user)" in printed
+    await graph.close()
+
+
+async def test_seed_definitions_interactive_confirms_each_and_keeps_edits():
+    other = Entity(id="metric.demo_shop.orders", name="orders", type=EntityType.METRIC,
+                   source_connector="dbt", project="demo_shop")
+    third = Entity(id="metric.demo_shop.revenue", name="revenue", type=EntityType.METRIC,
+                   source_connector="dbt", project="demo_shop")
+    graph = await _real_graph()
+    for e in (other, third):
+        await graph.upsert_entity(e)
+    seeds = {AOV_METRIC.id: AOV_TEXT, other.id: "Count of orders.", third.id: "Revenue."}
+    # y = accept AOV, e = edit orders, blank = skip revenue
+    console = _make_console(inputs=["y", "e", "Orders net of cancellations.", ""])
+
+    written = await SemanticScanner(backend=_make_backend({}))._write_seed_definitions(
+        seeds, [AOV_METRIC, other, third], graph, True, console
+    )
+
+    assert written == 2
+    aov = await graph.get_latest_definition(AOV_METRIC.id)
+    assert (aov.description, aov.created_by) == (AOV_TEXT, "scan")
+    orders = await graph.get_latest_definition(other.id)
+    assert (orders.description, orders.created_by) == ("Orders net of cancellations.", "user")
+    assert await graph.get_latest_definition(third.id) is None
+    await graph.close()

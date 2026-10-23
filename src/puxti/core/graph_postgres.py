@@ -258,8 +258,11 @@ class PostgresKnowledgeGraph:
 
     @_serialized
     async def get_reconcile_candidates(self) -> list[Entity]:
-        """Bound model/view/table entities a proposed metric could bind to."""
-        types = [EntityType.MODEL.value, EntityType.VIEW.value, EntityType.TABLE.value]
+        """Bound model/view/table/metric entities a proposed metric could bind to."""
+        types = [
+            EntityType.MODEL.value, EntityType.VIEW.value, EntityType.TABLE.value,
+            EntityType.METRIC.value,
+        ]
         rows = await self._conn.fetch(
             "SELECT * FROM entities WHERE status = $1 AND type = ANY($2::text[])",
             EntityStatus.BOUND.value, types,

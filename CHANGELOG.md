@@ -4,10 +4,13 @@
 
 ### Added
 
+- **`puxti scan` imports MetricFlow metrics.** Metrics defined in a dbt project never became entities, so an agent asking about one through the MCP tools got "not found" even after a scan. Scan now reads them from `manifest.json` as metric entities with the ID `metric.<project>.<name>`, with lineage from each metric to the model behind its semantic model and from derived and ratio metrics to their input metrics. Each definition comes from the metric's YAML (description plus what it computes) with no LLM call, after one confirmation. A re-scan writes a new version only when the YAML changed, and never overwrites a definition someone wrote. With `--interactive`, each metric definition is confirmed, edited or skipped on its own. A metric from `puxti define` with the same ID becomes bound in place; one under `metric.proposed.*` is offered for binding by name, preferring a dbt metric over a model with the same name. `puxti define` now refuses an ID that already belongs to a bound entity instead of demoting it to proposed. ([#70](https://github.com/puxti-labs/puxti/issues/70))
+
 - **`search_entities` MCP tool.** The other MCP tools take an exact `entity_id`, and nothing let an agent find one, so it guessed the format and got "not found". `search_entities(query, type=None, limit=20)` matches every word of the query case-insensitively against entity names and IDs ("average order" finds `average_order_value`), optionally filtered by entity type, and returns each hit's ID, name, type, project, status and the first line of its current definition, plus a `truncated` flag when more entities matched than the limit. Exact name and ID matches rank first. The `puxti-analytics` skill written by `puxti mcp init` now tells the agent to search before it calls the other tools. ([#71](https://github.com/puxti-labs/puxti/issues/71))
 
 ### Fixed
 
+- **MCP "not found" no longer tells the agent to run `puxti scan` on a populated graph.** When the graph has entities, the error says the ID is unknown and points at `search_entities`; only an empty graph still points at `puxti scan`.
 - **Latest definitions keep their stored timestamp.** `get_latest_definition` and `get_all_entities_with_definitions` did not read `created_at` on either backend, so the value fell back to the current time. The MCP `describe_entity` tool, and the provenance footer the `puxti-analytics` skill builds from it, reported every definition as written at the moment of the call. `definition_history` was not affected.
 
 ## [0.16.0] — 2026-10-19

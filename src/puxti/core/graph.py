@@ -475,8 +475,11 @@ class SqliteKnowledgeGraph:
             return [_to_entity(r) for r in await cur.fetchall()]
 
     async def get_reconcile_candidates(self) -> list[Entity]:
-        """Bound model/view/table entities a proposed metric could bind to."""
-        types = (EntityType.MODEL.value, EntityType.VIEW.value, EntityType.TABLE.value)
+        """Bound model/view/table/metric entities a proposed metric could bind to."""
+        types = (
+            EntityType.MODEL.value, EntityType.VIEW.value, EntityType.TABLE.value,
+            EntityType.METRIC.value,
+        )
         placeholders = ",".join("?" * len(types))
         async with self._db.execute(
             f"SELECT * FROM entities WHERE status=? AND type IN ({placeholders})",

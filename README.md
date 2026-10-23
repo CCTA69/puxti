@@ -229,6 +229,8 @@ Nothing is written to the Knowledge Graph without your explicit confirmation.
 
 After definitions are confirmed, Puxti also proposes initial semantic edges between models and asks you to confirm those as a group.
 
+**MetricFlow metrics.** When the dbt project defines metrics (dbt 1.6+ writes them to `target/manifest.json` alongside `semantic_manifest.json`), scan imports each one as a metric entity with the ID `metric.<project>.<name>`. Lineage goes from a simple or cumulative metric to the model behind its semantic model, and from a derived or ratio metric to its input metrics. Each metric's definition comes straight from its YAML, with no LLM call: the description, then what it computes (for example `Derived metric: lifetime_spend_pretax / count_lifetime_orders`). Scan shows these definitions and asks for one confirmation before writing them (one per metric with `--interactive`, where you can also edit or skip each; an edited definition counts as yours). On a re-scan, a metric whose YAML changed gets a new definition version, and a definition someone wrote with `define`, `redefine` or `correct` is never overwritten; scan lists those metrics instead. A project without metrics scans exactly as before.
+
 ---
 
 ### Step 1b — Link upstream producers (optional, but recommended)
@@ -295,11 +297,16 @@ A proposed metric is never reported as a fact by the MCP tools (see below) until
 it is bound to a real entity. `puxti describe` lists proposed metrics in their own
 "Proposed (unbound)" section.
 
+`puxti define` refuses an ID that already belongs to a bound entity, such as a dbt metric scan imported; change that one's meaning with `puxti redefine` or fix it with `puxti correct`.
+
 Two ways to bind a proposed metric to the model that implements it:
 
-- `puxti scan` reconciles automatically: when a scanned model or view has the same
-  name as a proposed metric, scan offers the bind and you confirm it. It never
-  binds silently, and it only matches on an exact (case-insensitive) name.
+- `puxti scan` reconciles automatically. A metric defined with `--project` set to
+  the dbt project name has the same ID as the dbt metric that implements it, so
+  scan turns it into a bound metric in place and keeps your definition. Otherwise,
+  when a scanned model, view or dbt metric has the same name as a proposed metric,
+  scan offers the bind and you confirm it. It never binds silently, and it only
+  matches on an exact (case-insensitive) name.
 - `puxti bind` binds explicitly, for the cases scan cannot match by name:
 
 ```bash
@@ -471,7 +478,10 @@ Commands like `capture`, `redefine`, and `correct` require a full entity ID (e.g
 When you classify a correction as a "real change", Puxti prints the `redefine` command to run next and asks whether to run it immediately. Press Enter or anything other than `y` to keep the copy-paste workflow.
 
 **Proposed metrics are inert until reconciled**
-A metric created with `puxti define` is a definition with no backing model. It holds no value and has no structural dependents until it is bound. `puxti scan` only auto-suggests a bind when a scanned model or view has the exact same name; for anything else, bind it explicitly with `puxti bind`.
+A metric created with `puxti define` is a definition with no backing model. It holds no value and has no structural dependents until it is bound. `puxti scan` only auto-suggests a bind when a scanned model, view or dbt metric has the exact same name. A dbt metric wins over a model with the same name (jaffle-shop has both an `orders` metric and an `orders` model), and a name that two metrics or two models share is skipped; for anything else, bind it explicitly with `puxti bind`.
+
+**Metric impact is one hop**
+`impact_of_change` and `consumers` list direct dependents. A simple metric built on `orders` shows up in the impact of `orders`; a derived metric built on that simple metric does not, until you run impact on the simple metric itself. A column rename also leaves the semantic model YAML that references the column untouched.
 
 ---
 

@@ -12,6 +12,7 @@ from puxti.core.graph import GraphStore, KnowledgeGraph
 from puxti.core.resolution import build_reference_index
 from puxti.core.scanner import SemanticScanner
 from puxti.llm import COST_UNKNOWN_HINT
+from puxti.models import EntityType
 from puxti.settings import settings
 
 
@@ -36,6 +37,10 @@ def scan(
     entities and lineage, infers starter definitions via LLM, and proposes
     semantic edges. Table references that cross connectors (e.g. a SQL view
     reading a Prisma-managed table) are resolved into lineage edges.
+
+    dbt MetricFlow metrics become metric entities (metric.<project>.<name>)
+    whose definitions come from their YAML, no LLM; a definition someone wrote
+    is never overwritten.
 
     Two modes:
     - Default (auto): generates all definitions in one pass, shows a summary,
@@ -164,13 +169,27 @@ async def _reconcile_proposed(graph: GraphStore, interactive: bool) -> None:
 
     Never binds without confirmation. Exact (case-insensitive) name matches only;
     anything scan cannot match stays unbound and is bound explicitly with
-    `puxti bind`."""
+    `puxti bind`.
+
+    A scanned metric with the proposed metric's name wins over a model, view or
+    table with the same name (jaffle-shop has both an `orders` metric and an
+    `orders` model). Names shared by two metrics stay unmatched."""
     proposed = await graph.get_proposed_entities()
     if not proposed:
         return
 
-    index = _build_name_index(await graph.get_reconcile_candidates())
-    matches = [(p, index[p.name.lower()]) for p in proposed if p.name.lower() in index]
+    candidates = await graph.get_reconcile_candidates()
+    metrics = [e for e in candidates if e.type == EntityType.METRIC]
+    metric_names = {e.name.lower() for e in metrics}
+    metric_index = _build_name_index(metrics)
+    other_index = _build_name_index([e for e in candidates if e.type != EntityType.METRIC])
+
+    matches = []
+    for p in proposed:
+        key = p.name.lower()
+        index = metric_index if key in metric_names else other_index
+        if key in index:
+            matches.append((p, index[key]))
 
     if not matches:
         console.print(

@@ -386,8 +386,10 @@ async def test_impact_misspelled_model_returns_error():
             await impact_of_change(entity_id="model.cal_itp.stg_littlepay__microp4yments")
         )
 
+    # The graph is populated, so the ID is wrong: point at search, not at scan.
     assert "error" in result
-    assert "puxti scan" in result["error"]
+    assert "search_entities" in result["error"]
+    assert "puxti scan" not in result["error"]
 
 
 async def test_consumers_gtfs_model_not_yet_scanned_returns_error():

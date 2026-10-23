@@ -52,6 +52,22 @@ async def _graph_connect() -> GraphStore:
     return _graph
 
 
+async def _not_found(graph: GraphStore, entity_id: str) -> str:
+    """Error for an unknown entity_id. Only an empty graph means a scan is
+    missing; otherwise the ID is wrong, and search_entities finds the right one."""
+    if not await graph.get_all_entity_ids():
+        message = (
+            f"Entity '{entity_id}' not found: the Knowledge Graph is empty. "
+            "Run `puxti scan` first."
+        )
+    else:
+        message = (
+            f"Entity '{entity_id}' not found. Call search_entities with its name to find "
+            "the exact entity_id instead of guessing the ID format."
+        )
+    return json.dumps({"error": message})
+
+
 @mcp.tool()
 async def search_entities(query: str, type: str | None = None, limit: int = 20) -> str:
     """Find entities by name or ID. Call this first when you don't have an exact entity_id.
@@ -118,7 +134,7 @@ async def impact_of_change(entity_id: str, change_type: str | None = None) -> st
     graph = await _graph_connect()
     entity = await graph.get_entity_by_id(entity_id)
     if not entity:
-        return json.dumps({"error": f"Entity '{entity_id}' not found. Run `puxti scan` first."})
+        return await _not_found(graph, entity_id)
 
     if entity.status == EntityStatus.PROPOSED:
         return json.dumps({
@@ -174,7 +190,7 @@ async def consumers(entity_id: str) -> str:
     graph = await _graph_connect()
     entity = await graph.get_entity_by_id(entity_id)
     if not entity:
-        return json.dumps({"error": f"Entity '{entity_id}' not found. Run `puxti scan` first."})
+        return await _not_found(graph, entity_id)
 
     if entity.status == EntityStatus.PROPOSED:
         return json.dumps({
@@ -209,7 +225,7 @@ async def definition_history(entity_id: str) -> str:
     graph = await _graph_connect()
     entity = await graph.get_entity_by_id(entity_id)
     if not entity:
-        return json.dumps({"error": f"Entity '{entity_id}' not found. Run `puxti scan` first."})
+        return await _not_found(graph, entity_id)
 
     history = await graph.get_definition_history(entity_id)
     return json.dumps({
@@ -240,7 +256,7 @@ async def describe_entity(entity_id: str) -> str:
     graph = await _graph_connect()
     entity = await graph.get_entity_by_id(entity_id)
     if not entity:
-        return json.dumps({"error": f"Entity '{entity_id}' not found. Run `puxti scan` first."})
+        return await _not_found(graph, entity_id)
 
     definition = await graph.get_latest_definition(entity_id)
     edges = await graph.get_entity_semantic_edges(entity_id)
