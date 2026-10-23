@@ -344,6 +344,7 @@ class SqliteKnowledgeGraph:
                     version=row["def_ver"],
                     created_by=row["def_created_by"],
                     change_event_id=row["def_change_event_id"],
+                    created_at=datetime.fromisoformat(row["def_created_at"]),
                 )
             result.append((entity, definition))
         return result
@@ -666,6 +667,7 @@ class SqliteKnowledgeGraph:
             version=row["version"],
             created_by=row["created_by"],
             change_event_id=row["change_event_id"],
+            created_at=datetime.fromisoformat(row["created_at"]),
         )
 
     async def get_definition_history(self, entity_id: str) -> list[Definition]:

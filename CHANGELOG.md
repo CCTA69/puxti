@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Latest definitions keep their stored timestamp.** `get_latest_definition` and `get_all_entities_with_definitions` did not read `created_at` on either backend, so the value fell back to the current time. The MCP `describe_entity` tool, and the provenance footer the `puxti-analytics` skill builds from it, reported every definition as written at the moment of the call. `definition_history` was not affected.
+
 ## [0.16.0] — 2026-10-19
 
 ### Changed
