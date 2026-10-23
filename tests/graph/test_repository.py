@@ -328,6 +328,13 @@ async def test_purge_all(kg: KnowledgeGraph) -> None:
     assert await kg.get_all_entity_ids() == []
 
 
+@pytest.mark.asyncio
+async def test_has_entities(kg: KnowledgeGraph) -> None:
+    assert await kg.has_entities() is False
+    await kg.upsert_entity(_entity("orders"))
+    assert await kg.has_entities() is True
+
+
 # ── change events ─────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

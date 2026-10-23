@@ -196,6 +196,10 @@ class PostgresKnowledgeGraph:
         return [row["id"] for row in rows]
 
     @_serialized
+    async def has_entities(self) -> bool:
+        return await self._conn.fetchval("SELECT 1 FROM entities LIMIT 1") is not None
+
+    @_serialized
     async def filter_existing_entity_ids(self, entity_ids: list[str]) -> list[str]:
         if not entity_ids:
             return []

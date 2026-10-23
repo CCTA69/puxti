@@ -248,6 +248,7 @@ class GraphStore(Protocol):
     async def get_entity_by_name(self, name: str, connector: str) -> Entity | None: ...
     async def get_entity_by_id(self, entity_id: str) -> Entity | None: ...
     async def get_all_entity_ids(self) -> list[str]: ...
+    async def has_entities(self) -> bool: ...
     async def filter_existing_entity_ids(self, entity_ids: list[str]) -> list[str]: ...
     async def get_all_entities_with_definitions(
         self,
@@ -414,6 +415,10 @@ class SqliteKnowledgeGraph:
     async def get_all_entity_ids(self) -> list[str]:
         async with self._db.execute("SELECT id FROM entities ORDER BY id") as cur:
             return [row["id"] for row in await cur.fetchall()]
+
+    async def has_entities(self) -> bool:
+        async with self._db.execute("SELECT 1 FROM entities LIMIT 1") as cur:
+            return await cur.fetchone() is not None
 
     async def filter_existing_entity_ids(self, entity_ids: list[str]) -> list[str]:
         if not entity_ids:

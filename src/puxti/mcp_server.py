@@ -55,7 +55,7 @@ async def _graph_connect() -> GraphStore:
 async def _not_found(graph: GraphStore, entity_id: str) -> str:
     """Error for an unknown entity_id. Only an empty graph means a scan is
     missing; otherwise the ID is wrong, and search_entities finds the right one."""
-    if not await graph.get_all_entity_ids():
+    if not await graph.has_entities():
         message = (
             f"Entity '{entity_id}' not found: the Knowledge Graph is empty. "
             "Run `puxti scan` first."
