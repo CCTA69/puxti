@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-10-23
+
 ### Added
 
 - **`puxti scan` imports MetricFlow metrics.** Metrics defined in a dbt project never became entities, so an agent asking about one through the MCP tools got "not found" even after a scan. Scan now reads them from `manifest.json` as metric entities with the ID `metric.<project>.<name>`, with lineage from each metric to the model behind its semantic model and from derived and ratio metrics to their input metrics. Each definition comes from the metric's YAML (description plus what it computes) with no LLM call, after one confirmation. A re-scan writes a new version only when the YAML changed, and never overwrites a definition someone wrote. With `--interactive`, each metric definition is confirmed, edited or skipped on its own. A metric from `puxti define` with the same ID becomes bound in place; one under `metric.proposed.*` is offered for binding by name, preferring a dbt metric over a model with the same name. `puxti define` now refuses an ID that already belongs to a bound entity instead of demoting it to proposed. ([#70](https://github.com/puxti-labs/puxti/issues/70))
