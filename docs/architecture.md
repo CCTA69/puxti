@@ -4,7 +4,7 @@ This document describes how Puxti works internally. It's aimed at contributors,
 integrators, and curious users who want to understand the design before reading
 the code.
 
-For installation and usage, see the [README](../README.md). For codebase
+For installation and usage, see the [README](../README.md) and the guides in this folder. For codebase
 conventions, see [AGENTS.md](../AGENTS.md).
 
 ---
@@ -390,8 +390,8 @@ class BaseConnector(ABC):
 | `github` | yes — repo metadata | yes — opens PRs |
 
 Additional connectors (Dagster, Looker, Superset, Mode, BI tools generally)
-are not part of the OSS package today. Contributions welcome — see the
-contributor guide in the README.
+are not part of the OSS package today. Contributions welcome — see
+[CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ### 6.3 Configuration
 

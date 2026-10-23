@@ -207,8 +207,11 @@ is unreferenced, wire it up end-to-end or delete it — don't leave it for later
 ## Documentation
 
 **Update docs when functionality changes.** When a command gains a flag, a scope
-changes, a model changes, or behaviour shifts — update `README.md`, this file,
-and any relevant doc in the same step. Not later.
+changes, a model changes, or behaviour shifts — update the matching guide in
+`docs/` (`configuration.md`, `commands.md`, `metrics.md`, `mcp.md`,
+`limitations.md`), this file, and the README command table when a command is
+added or removed, in the same step. Not later. The README stays short: pitch,
+quick start, command table, links to the guides.
 
 Config defaults are read from `settings.py`, not from prose — this file names
 *which* setting gates a path, never asserts its current default value. Defaults
@@ -242,6 +245,6 @@ does not imply permission to commit it. Show diffs and wait for confirmation.
 
 ## Further reading
 
-- `README.md` — install and usage from a user's perspective
+- `README.md` — pitch and quick start; `docs/` holds the user guides
 - `docs/architecture.md` — deeper technical design (when present)
 - GitHub issues — current work and discussions
