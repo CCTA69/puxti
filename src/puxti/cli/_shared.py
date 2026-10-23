@@ -20,6 +20,7 @@ err_console = Console(stderr=True)
 _UPDATE_CHECK_INTERVAL = timedelta(hours=24)
 _PYPI_URL = "https://pypi.org/pypi/puxti/json"
 _update_notice: list[str] = []  # populated by background thread, read after command
+_REPO_URL = "https://github.com/puxti-labs/puxti"
 
 
 def _check_for_update() -> None:
@@ -59,6 +60,33 @@ def _check_for_update() -> None:
 
     except Exception:
         pass  # never break the CLI over an update check
+
+
+def _show_star_notice_once() -> None:
+    """Ask for a GitHub star once, after the first successful command on this machine.
+
+    Only shown on an interactive terminal, so CI logs and agent-driven runs never
+    see it. The shown flag lives in ~/.puxti/config.toml.
+    """
+    try:
+        if not err_console.is_terminal:
+            return
+
+        from puxti.telemetry import _config_lock, _load_config, _save_config
+
+        with _config_lock:
+            data = _load_config()
+            if data.get("notices", {}).get("star_shown"):
+                return
+            data.setdefault("notices", {})["star_shown"] = True
+            _save_config(data)
+
+        err_console.print(
+            f"\n[dim]If puxti is useful to you, a star on GitHub helps other data teams "
+            f"find it: {_REPO_URL}\nThis message is shown once.[/dim]"
+        )
+    except Exception:
+        pass  # never break the CLI over a notice
 
 
 def _run(coro, *, command: str = "") -> None:
@@ -113,6 +141,8 @@ def _run(coro, *, command: str = "") -> None:
                 f"\n[yellow]Update available:[/yellow] {__version__} → {_update_notice[0]}\n"
                 f"  Run: [bold]pip install --upgrade puxti[/bold]"
             )
+        if exit_status == 0:
+            _show_star_notice_once()
 
 
 def _load_workspace() -> WorkspaceConfig:

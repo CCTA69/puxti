@@ -100,3 +100,67 @@ def test_parse_entity_id_unknown_raises():
     from puxti.cli._shared import _parse_entity_id
     with pytest.raises(ValueError, match="Unrecognized entity ID"):
         _parse_entity_id("unknown.prefix.thing")
+
+
+# ── one-time star notice ──────────────────────────────────────────────────────
+
+def _run_noop(tmp_path, *, terminal: bool):
+    import io
+    from unittest.mock import patch
+
+    from rich.console import Console
+
+    from puxti.cli import _shared
+
+    async def _noop():
+        return None
+
+    buf = io.StringIO()
+    console = Console(file=buf, force_terminal=terminal)
+    with (
+        patch("puxti.telemetry._CONFIG_PATH", tmp_path / "config.toml"),
+        patch.object(_shared, "err_console", console),
+        patch.object(_shared, "_check_for_update", lambda: None),
+    ):
+        _shared._run(_noop())
+    return buf.getvalue()
+
+
+def test_star_notice_shown_once_on_terminal(tmp_path):
+
+    first = _run_noop(tmp_path, terminal=True)
+    second = _run_noop(tmp_path, terminal=True)
+    assert "github.com/puxti-labs/puxti" in first
+    assert "github.com/puxti-labs/puxti" not in second
+    assert "star_shown = true" in (tmp_path / "config.toml").read_text()
+
+
+def test_star_notice_skipped_when_not_a_terminal(tmp_path):
+    output = _run_noop(tmp_path, terminal=False)
+    assert "github.com" not in output
+    assert not (tmp_path / "config.toml").exists()
+
+
+def test_star_notice_skipped_on_failure(tmp_path):
+    import io
+    from unittest.mock import patch
+
+    import pytest
+    import typer
+    from rich.console import Console
+
+    from puxti.cli import _shared
+
+    async def _fail():
+        raise typer.Exit(1)
+
+    buf = io.StringIO()
+    with (
+        patch("puxti.telemetry._CONFIG_PATH", tmp_path / "config.toml"),
+        patch.object(_shared, "err_console", Console(file=buf, force_terminal=True)),
+        patch.object(_shared, "_check_for_update", lambda: None),
+        pytest.raises(typer.Exit),
+    ):
+        _shared._run(_fail())
+    assert "github.com" not in buf.getvalue()
+    assert not (tmp_path / "config.toml").exists()
